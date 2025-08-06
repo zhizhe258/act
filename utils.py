@@ -3,6 +3,7 @@ import torch
 import os
 import h5py
 from torch.utils.data import TensorDataset, DataLoader
+from constants import GYM_ALOHA_GRIPPER_TO_ACT_FN, ACT_TO_GYM_ALOHA_GRIPPER_FN
 
 import IPython
 e = IPython.embed
@@ -36,6 +37,18 @@ class EpisodicDataset(torch.utils.data.Dataset):
             # get observation at start_ts only
             qpos = root['/observations/qpos'][start_ts]
             qvel = root['/observations/qvel'][start_ts]
+            
+            # Apply gripper normalization for slot insertion dataset
+            # Convert from [0.5, 1.0] range in qpos to [0, 1] range to match action
+            qpos = qpos.copy()
+            # Left gripper (joint 6) - normalize from [0.5,1] to [0,1] if needed
+            if qpos[6] > 0.4:  # Check if it's in the [0.5,1] range
+                qpos[6] = (qpos[6] - 0.5) * 2.0  # Map [0.5,1] -> [0,1]
+            qpos[6] = np.clip(qpos[6], 0.0, 1.0)
+            # Right gripper (joint 13) - normalize from [0.5,1] to [0,1] if needed
+            if qpos[13] > 0.4:  # Check if it's in the [0.5,1] range
+                qpos[13] = (qpos[13] - 0.5) * 2.0  # Map [0.5,1] -> [0,1]
+            qpos[13] = np.clip(qpos[13], 0.0, 1.0)
             image_dict = dict()
             for cam_name in self.camera_names:
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
@@ -69,9 +82,9 @@ class EpisodicDataset(torch.utils.data.Dataset):
         image_data = torch.einsum('k h w c -> k c h w', image_data)
 
         # normalize image and change dtype to float
-        image_data = image_data / 255.0
-        action_data = (action_data - self.norm_stats["action_mean"]) / self.norm_stats["action_std"]
-        qpos_data = (qpos_data - self.norm_stats["qpos_mean"]) / self.norm_stats["qpos_std"]
+        image_data = image_data.float() / 255.0
+        action_data = (action_data - torch.from_numpy(self.norm_stats["action_mean"]).float()) / torch.from_numpy(self.norm_stats["action_std"]).float()
+        qpos_data = (qpos_data - torch.from_numpy(self.norm_stats["qpos_mean"]).float()) / torch.from_numpy(self.norm_stats["qpos_std"]).float()
 
         return image_data, qpos_data, action_data, is_pad
 
@@ -79,12 +92,26 @@ class EpisodicDataset(torch.utils.data.Dataset):
 def get_norm_stats(dataset_dir, num_episodes):
     all_qpos_data = []
     all_action_data = []
+    
     for episode_idx in range(num_episodes):
         dataset_path = os.path.join(dataset_dir, f'episode_{episode_idx}.hdf5')
         with h5py.File(dataset_path, 'r') as root:
             qpos = root['/observations/qpos'][()]
             qvel = root['/observations/qvel'][()]
             action = root['/action'][()]
+            
+            # Apply gripper normalization for slot insertion dataset
+            # Convert from [0.5, 1.0] range in qpos to [0, 1] range to match action
+            qpos = qpos.copy()
+            # Left gripper (joint 6) - normalize from [0.5,1] to [0,1] for all timesteps
+            mask_left = qpos[:, 6] > 0.4  # Check which values need rescaling
+            qpos[mask_left, 6] = (qpos[mask_left, 6] - 0.5) * 2.0  # Map [0.5,1] -> [0,1]
+            qpos[:, 6] = np.clip(qpos[:, 6], 0.0, 1.0)
+            # Right gripper (joint 13) - normalize from [0.5,1] to [0,1] for all timesteps
+            mask_right = qpos[:, 13] > 0.4  # Check which values need rescaling
+            qpos[mask_right, 13] = (qpos[mask_right, 13] - 0.5) * 2.0  # Map [0.5,1] -> [0,1]
+            qpos[:, 13] = np.clip(qpos[:, 13], 0.0, 1.0)
+            
         all_qpos_data.append(torch.from_numpy(qpos))
         all_action_data.append(torch.from_numpy(action))
     all_qpos_data = torch.stack(all_qpos_data)

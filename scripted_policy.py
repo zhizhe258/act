@@ -18,7 +18,6 @@ class BasePolicy:
 
     def generate_trajectory(self, ts_first):
         raise NotImplementedError
-
     @staticmethod
     def interpolate(curr_waypoint, next_waypoint, t):
         t_frac = (t - curr_waypoint["t"]) / (next_waypoint["t"] - curr_waypoint["t"])

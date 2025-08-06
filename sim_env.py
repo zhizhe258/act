@@ -7,6 +7,7 @@ from dm_control.rl import control
 from dm_control.suite import base
 
 from constants import DT, XML_DIR, START_ARM_POSE
+from constants import BIMANUAL_ALOHA_START_ARM_POSE, BIMANUAL_ALOHA_START_ARM_CONTROL, BIMANUAL_ALOHA_JOINT_NAMES
 from constants import PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN
 from constants import MASTER_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN
@@ -47,6 +48,48 @@ def make_sim_env(task_name):
         task = InsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_cube_transfer' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_cube_transfer.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaTransferCubeTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_peg_insertion' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_peg_insertion.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaPegInsertionTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_color_cubes' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_color_cubes.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaColorCubesTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_slot_insertion' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_slot_insertion.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaSlotInsertionTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_hook_package' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_hook_package.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaHookPackageTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_pour_test_tube' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_pour_test_tube.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaPourTestTubeTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+    elif 'bimanual_aloha_thread_needle' in task_name:
+        xml_path = os.path.join(XML_DIR, 'task_thread_needle.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = BimanualAlohaThreadNeedleTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
     else:
         raise NotImplementedError
     return env
@@ -64,8 +107,8 @@ class BimanualViperXTask(base.Task):
         left_gripper_action = PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(normalized_left_gripper_action)
         right_gripper_action = PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(normalized_right_gripper_action)
 
-        full_left_gripper_action = [left_gripper_action, -left_gripper_action]
-        full_right_gripper_action = [right_gripper_action, -right_gripper_action]
+        full_left_gripper_action = [left_gripper_action, left_gripper_action]
+        full_right_gripper_action = [right_gripper_action, right_gripper_action]
 
         env_action = np.concatenate([left_arm_action, full_left_gripper_action, right_arm_action, full_right_gripper_action])
         super().before_step(env_action, physics)
@@ -227,6 +270,216 @@ class InsertionTask(BimanualViperXTask):
         if pin_touched: # successful insertion
             reward = 4
         return reward
+
+
+class BimanualAlohaTask(base.Task):
+    """Base class for bimanual ALOHA tasks"""
+    def __init__(self, random=None):
+        super().__init__(random=random)
+
+    def before_step(self, action, physics):
+        """
+        Action space for bimanual ALOHA setup (14D):
+        - left_arm_action (6): left arm joint positions
+        - left_gripper_action (1): normalized left gripper position  
+        - right_arm_action (6): right arm joint positions
+        - right_gripper_action (1): normalized right gripper position
+        """
+        left_arm_action = action[:6]
+        left_gripper_normalized = action[6]
+        right_arm_action = action[7:13]
+        right_gripper_normalized = action[13]
+
+        left_gripper_action = PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(left_gripper_normalized)
+        right_gripper_action = PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(right_gripper_normalized)
+
+        # For bimanual ALOHA, each gripper is controlled by single actuator
+        env_action = np.concatenate([
+            left_arm_action, [left_gripper_action],  # left arm + gripper
+            right_arm_action, [right_gripper_action]  # right arm + gripper
+        ])
+        super().before_step(env_action, physics)
+        return
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_qpos(physics):
+        qpos_raw = physics.data.qpos.copy()
+        # Extract positions for two arms: left (8), right (8)
+        left_qpos_raw = qpos_raw[:8]
+        right_qpos_raw = qpos_raw[8:16]
+        
+        left_arm_qpos = left_qpos_raw[:6]
+        right_arm_qpos = right_qpos_raw[:6]
+        
+        left_gripper_qpos = [PUPPET_GRIPPER_POSITION_NORMALIZE_FN(left_qpos_raw[6])]
+        right_gripper_qpos = [PUPPET_GRIPPER_POSITION_NORMALIZE_FN(right_qpos_raw[6])]
+        
+        return np.concatenate([
+            left_arm_qpos, left_gripper_qpos, 
+            right_arm_qpos, right_gripper_qpos
+        ])
+
+    @staticmethod
+    def get_qvel(physics):
+        qvel_raw = physics.data.qvel.copy()
+        # Extract velocities for two arms: left (8), right (8)
+        left_qvel_raw = qvel_raw[:8]
+        right_qvel_raw = qvel_raw[8:16]
+        
+        left_arm_qvel = left_qvel_raw[:6]
+        right_arm_qvel = right_qvel_raw[:6]
+        
+        left_gripper_qvel = [PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN(left_qvel_raw[6])]
+        right_gripper_qvel = [PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN(right_qvel_raw[6])]
+        
+        return np.concatenate([
+            left_arm_qvel, left_gripper_qvel,
+            right_arm_qvel, right_gripper_qvel
+        ])
+
+    @staticmethod
+    def get_env_state(physics):
+        # Get state of objects in environment (after robot joints)
+        env_state = physics.data.qpos.copy()[16:]  # Skip 16 robot joints (2 arms * 8 joints each)
+        return env_state
+
+    def get_observation(self, physics):
+        obs = collections.OrderedDict()
+        obs['qpos'] = self.get_qpos(physics)
+        obs['qvel'] = self.get_qvel(physics)
+        obs['env_state'] = self.get_env_state(physics)
+        obs['images'] = dict()
+        
+        # Render from available cameras
+        obs['images']['overhead_cam'] = physics.render(height=480, width=640, camera_id='overhead_cam')
+        obs['images']['worms_eye_cam'] = physics.render(height=480, width=640, camera_id='worms_eye_cam')
+        obs['images']['wrist_cam_left'] = physics.render(height=480, width=640, camera_id='wrist_cam_left')
+        obs['images']['wrist_cam_right'] = physics.render(height=480, width=640, camera_id='wrist_cam_right')
+        # Note: zed_cam_left and zed_cam_right were removed with middle arm
+        
+        return obs
+
+    def get_reward(self, physics):
+        # Default reward implementation - to be overridden by specific tasks
+        return 0
+
+
+class BimanualAlohaTransferCubeTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+            assert BOX_POSE[0] is not None
+            physics.named.data.qpos[-7:] = BOX_POSE[0]
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement cube transfer reward logic
+        return 0
+
+
+class BimanualAlohaPegInsertionTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement peg insertion reward logic
+        return 0
+
+
+class BimanualAlohaColorCubesTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement color cubes reward logic
+        return 0
+
+
+class BimanualAlohaSlotInsertionTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement slot insertion reward logic
+        return 0
+
+
+class BimanualAlohaHookPackageTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement hook package reward logic
+        return 0
+
+
+class BimanualAlohaPourTestTubeTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement pour test tube reward logic
+        return 0
+
+
+class BimanualAlohaThreadNeedleTask(BimanualAlohaTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
+            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+        super().initialize_episode(physics)
+
+    def get_reward(self, physics):
+        # Implement thread needle reward logic
+        return 0
 
 
 def get_action(master_bot_left, master_bot_right):

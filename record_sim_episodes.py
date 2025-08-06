@@ -9,6 +9,7 @@ from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, SIM_TASK_CONFIGS
 from ee_sim_env import make_ee_sim_env
 from sim_env import make_sim_env, BOX_POSE
 from scripted_policy import PickAndTransferPolicy, InsertionPolicy
+from auto_path_manager import get_auto_dataset_dir, print_structure_info
 
 import IPython
 e = IPython.embed
@@ -24,14 +25,21 @@ def main(args):
     """
 
     task_name = args['task_name']
-    dataset_dir = args['dataset_dir']
     num_episodes = args['num_episodes']
     onscreen_render = args['onscreen_render']
     inject_noise = False
     render_cam_name = 'angle'
-
-    if not os.path.isdir(dataset_dir):
+    
+    # Auto-create dataset directory based on task name
+    if 'dataset_dir' in args and args['dataset_dir']:
+        dataset_dir = args['dataset_dir']
         os.makedirs(dataset_dir, exist_ok=True)
+    else:
+        dataset_dir = get_auto_dataset_dir(task_name)
+    
+    # Print directory info
+    paths = {'dataset_dir': dataset_dir}
+    print_structure_info(paths)
 
     episode_len = SIM_TASK_CONFIGS[task_name]['episode_len']
     camera_names = SIM_TASK_CONFIGS[task_name]['camera_names']
@@ -181,7 +189,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--task_name', action='store', type=str, help='task_name', required=True)
-    parser.add_argument('--dataset_dir', action='store', type=str, help='dataset saving dir', required=True)
+    parser.add_argument('--dataset_dir', action='store', type=str, help='dataset saving dir (optional, auto-generated if not provided)', required=False)
     parser.add_argument('--num_episodes', action='store', type=int, help='num_episodes', required=False)
     parser.add_argument('--onscreen_render', action='store_true')
     
