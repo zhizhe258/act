@@ -214,3 +214,27 @@ def detach_dict(d):
 def set_seed(seed):
     torch.manual_seed(seed)
     np.random.seed(seed)
+
+def sample_distractor_poses():
+    """Sample random positions for distractors in the workspace"""
+    distractor_poses = []
+    
+    # Define workspace bounds for distractors
+    x_range = [-0.3, 0.3]
+    y_range = [0.2, 0.8]
+    z_range = [0.02, 0.05]  # Slightly above table
+    
+    for i in range(3):  # 3 distractors
+        # Sample random position
+        position = np.random.uniform(
+            [x_range[0], y_range[0], z_range[0]],
+            [x_range[1], y_range[1], z_range[1]]
+        )
+        
+        # Random orientation (quaternion)
+        quat = np.array([1, 0, 0, 0])  # Identity quaternion for now
+        
+        pose = np.concatenate([position, quat])
+        distractor_poses.append(pose)
+    
+    return distractor_poses

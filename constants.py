@@ -14,104 +14,66 @@ GYM_ALOHA_TASK_MAPPING = {
     'slot-insertion-v1': 'bimanual_aloha_slot_insertion',
 }
 
+TASK_CONFIGS = {
+    'cube-transfer-v1': 'bimanual_aloha_pour_test_tube',  # 改为pour test tube
+    'peg-insertion-v1': 'bimanual_aloha_peg_insertion',
+    'slot-insertion-v1': 'bimanual_aloha_slot_insertion',
+    'hook-package-v1': 'bimanual_aloha_hook_package',
+    'pour-test-tube-v1': 'bimanual_aloha_pour_test_tube',
+    'thread-needle-v1': 'bimanual_aloha_thread_needle',
+}
+
 SIM_TASK_CONFIGS = {
-    # Original ACT tasks
-    'sim_transfer_cube_scripted':{
-        'dataset_dir': DATA_DIR + '/sim_transfer_cube_scripted',
+    # 转换后的任务配置（实际存在的数据集）
+    'converted_bimanual_aloha_hook_package': {
+        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_hook_package',
         'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['top']
-    },
-
-    'sim_transfer_cube_human':{
-        'dataset_dir': DATA_DIR + '/sim_transfer_cube_human',
-        'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['top']
-    },
-
-    'sim_insertion_scripted': {
-        'dataset_dir': DATA_DIR + '/sim_insertion_scripted',
-        'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['top']
-    },
-
-    'sim_insertion_human': {
-        'dataset_dir': DATA_DIR + '/sim_insertion_human',
-        'num_episodes': 50,
-        'episode_len': 500,
-        'camera_names': ['top']
-    },
-
-    # Bimanual ALOHA tasks (GYM-ALOHA compatible)
-    'bimanual_aloha_cube_transfer': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_cube_transfer',
-        'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/cube-transfer-v1'
-    },
-
-    'bimanual_aloha_peg_insertion': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_peg_insertion',
-        'num_episodes': 50,
-        'episode_len': 500,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/peg-insertion-v1'
-    },
-
-    'bimanual_aloha_color_cubes': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_color_cubes',
-        'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/color-cubes-v1'
-    },
-
-    'bimanual_aloha_slot_insertion': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_slot_insertion',
-        'num_episodes': 50,
-        'episode_len': 500,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/slot-insertion-v1'
-    },
-
-    # Converted gym-aloha dataset (with real velocities - RECOMMENDED)
-    'converted_bimanual_aloha_slot_insertion_with_vel': {
-        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_slot_insertion_with_vel',
-        'num_episodes': 50,  # 使用所有50个episodes
         'episode_len': 301,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
+        'camera_names': ['top'],  # 使用top相机名称匹配原始格式
+        'gym_aloha_env': 'gym_av_aloha/hook-package-v1',
+        'converted_from': 'gv_sim_hook_package_2arms',
+        'single_view': True
+    },
+
+    'converted_bimanual_aloha_thread_needle': {
+        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_thread_needle',
+        'num_episodes': 50,
+        'episode_len': 301,
+        'camera_names': ['top'],  # 使用top相机名称匹配原始格式
+        'gym_aloha_env': 'gym_av_aloha/thread-needle-v1',
+        'converted_from': 'gv_sim_sew_needle_2arms',
+        'single_view': True
+    },
+
+    'converted_bimanual_aloha_peg_insertion': {
+        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_peg_insertion',
+        'num_episodes': 50,
+        'episode_len': 401,  # 这个任务的数据长度是401
+        'camera_names': ['top'],  # 使用top相机名称匹配原始格式
+        'gym_aloha_env': 'gym_av_aloha/peg-insertion-v1',
+        'converted_from': 'gv_sim_insert_peg_2arms',
+        'single_view': True
+    },
+
+    'converted_bimanual_aloha_slot_insertion': {
+        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_slot_insertion',
+        'num_episodes': 50,
+        'episode_len': 301,
+        'camera_names': ['top'],  # 使用top相机名称匹配原始格式
         'gym_aloha_env': 'gym_av_aloha/slot-insertion-v1',
-        'converted_from': 'gv_sim_slot_insertion_2arms'
+        'converted_from': 'gv_sim_slot_insertion_2arms',
+        'single_view': True
     },
 
-    'bimanual_aloha_hook_package': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_hook_package',
+    'converted_bimanual_aloha_cube_transfer': {
+        'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_cube_transfer',
         'num_episodes': 50,
-        'episode_len': 600,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/hook-package-v1'
+        'episode_len': 351,  # 这个任务的数据长度是351
+        'camera_names': ['top'],  # 使用top相机名称匹配原始格式
+        'gym_aloha_env': 'gym_av_aloha/pour-test-tube-v1',  # 改为pour test tube
+        'converted_from': 'gv_sim_tube_transfer_2arms',
+        'single_view': True
     },
-
-    'bimanual_aloha_pour_test_tube': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_pour_test_tube',
-        'num_episodes': 50,
-        'episode_len': 500,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/pour-test-tube-v1'
-    },
-
-    'bimanual_aloha_thread_needle': {
-        'dataset_dir': DATA_DIR + '/bimanual_aloha_thread_needle',
-        'num_episodes': 50,
-        'episode_len': 600,
-        'camera_names': ['overhead_cam', 'worms_eye_cam', 'wrist_cam_left', 'wrist_cam_right'],
-        'gym_aloha_env': 'gym_av_aloha/thread-needle-v1'
-    },
-
-
 }
 
 ### Simulation envs fixed constants

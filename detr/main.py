@@ -59,6 +59,9 @@ def get_args_parser():
     parser.add_argument('--policy_class', action='store', type=str, help='policy_class, capitalize', required=True)
     parser.add_argument('--task_name', action='store', type=str, help='task_name', required=True)
     parser.add_argument('--seed', action='store', type=int, help='seed', required=True)
+    parser.add_argument('--num_episodes', action='store', type=int, help='num_episodes', required=False)
+    parser.add_argument('--episode_len', action='store', type=int, help='episode_len', required=False)
+    parser.add_argument('--is_sim', action='store', type=bool, help='is_sim', required=False)
     parser.add_argument('--num_epochs', action='store', type=int, help='num_epochs', required=True)
     parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
@@ -73,6 +76,10 @@ def build_ACT_model_and_optimizer(args_override):
 
     for k, v in args_override.items():
         setattr(args, k, v)
+    
+    # 确保backbone有默认值
+    if args.backbone is None:
+        args.backbone = 'resnet18'
 
     model = build_ACT_model(args)
     if torch.cuda.is_available():

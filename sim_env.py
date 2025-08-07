@@ -18,7 +18,7 @@ e = IPython.embed
 
 BOX_POSE = [None] # to be changed from outside
 
-def make_sim_env(task_name):
+def make_sim_env(task_name, enable_distractors=False):
     """
     Environment for simulated robot bi-manual manipulation, with joint position control
     Action space:      [left_arm_qpos (6),             # absolute joint position
@@ -48,28 +48,16 @@ def make_sim_env(task_name):
         task = InsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
-    elif 'bimanual_aloha_cube_transfer' in task_name:
-        xml_path = os.path.join(XML_DIR, 'task_cube_transfer.xml')
-        physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaTransferCubeTask(random=False)
-        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
-                                  n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_peg_insertion' in task_name:
         xml_path = os.path.join(XML_DIR, 'task_peg_insertion.xml')
         physics = mujoco.Physics.from_xml_path(xml_path)
         task = BimanualAlohaPegInsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
-    elif 'bimanual_aloha_color_cubes' in task_name:
-        xml_path = os.path.join(XML_DIR, 'task_color_cubes.xml')
-        physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaColorCubesTask(random=False)
-        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
-                                  n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_slot_insertion' in task_name:
         xml_path = os.path.join(XML_DIR, 'task_slot_insertion.xml')
         physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaSlotInsertionTask(random=False)
+        task = BimanualAlohaSlotInsertionTask(random=enable_distractors)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_hook_package' in task_name:
@@ -78,7 +66,7 @@ def make_sim_env(task_name):
         task = BimanualAlohaHookPackageTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
-    elif 'bimanual_aloha_pour_test_tube' in task_name:
+    elif 'bimanual_aloha_pour_test_tube' in task_name or 'converted_bimanual_aloha_cube_transfer' in task_name:
         xml_path = os.path.join(XML_DIR, 'task_pour_test_tube.xml')
         physics = mujoco.Physics.from_xml_path(xml_path)
         task = BimanualAlohaPourTestTubeTask(random=False)
@@ -368,24 +356,6 @@ class BimanualAlohaTask(base.Task):
         return 0
 
 
-class BimanualAlohaTransferCubeTask(BimanualAlohaTask):
-    def __init__(self, random=None):
-        super().__init__(random=random)
-        self.max_reward = 4
-
-    def initialize_episode(self, physics):
-        with physics.reset_context():
-            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
-            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
-            assert BOX_POSE[0] is not None
-            physics.named.data.qpos[-7:] = BOX_POSE[0]
-        super().initialize_episode(physics)
-
-    def get_reward(self, physics):
-        # Implement cube transfer reward logic
-        return 0
-
-
 class BimanualAlohaPegInsertionTask(BimanualAlohaTask):
     def __init__(self, random=None):
         super().__init__(random=random)
@@ -398,24 +368,48 @@ class BimanualAlohaPegInsertionTask(BimanualAlohaTask):
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
-        # Implement peg insertion reward logic
-        return 0
+        # Peg Insertion Reward Logic
+        touch_left_gripper = False
+        touch_right_gripper = False
+        peg_touch_table = False
+        hole_touch_table = False
+        peg_touch_hole = False
+        pin_touched = False
 
+        # Check contact pairs
+        contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            geom1 = physics.model.id2name(id_geom_1, 'geom')
+            geom2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pairs.append((geom1, geom2))
+            contact_pairs.append((geom2, geom1))
 
-class BimanualAlohaColorCubesTask(BimanualAlohaTask):
-    def __init__(self, random=None):
-        super().__init__(random=random)
-        self.max_reward = 4
+        for geom1, geom2 in contact_pairs:
+            if geom1 == "peg" and geom2.startswith("vx300s_7_gripper"):
+                touch_right_gripper = True
+            if geom1.startswith("hole-") and geom2.startswith("vx300s_7_gripper"):
+                touch_left_gripper = True
+            if geom1 == "table" and geom2 == "peg":
+                peg_touch_table = True
+            if geom1 == "table" and geom2.startswith("hole-"):
+                hole_touch_table = True
+            if geom1 == "peg" and geom2.startswith("hole-"):
+                peg_touch_hole = True
+            if geom1 == "peg" and geom2 == "pin":
+                pin_touched = True
 
-    def initialize_episode(self, physics):
-        with physics.reset_context():
-            physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
-            np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
-        super().initialize_episode(physics)
-
-    def get_reward(self, physics):
-        # Implement color cubes reward logic
-        return 0
+        reward = 0
+        if touch_left_gripper and touch_right_gripper:  # touch both
+            reward = 1
+        if touch_left_gripper and touch_right_gripper and (not peg_touch_table) and (not hole_touch_table): # grasp both
+            reward = 2
+        if peg_touch_hole and (not peg_touch_table) and (not hole_touch_table): # peg and socket touching
+            reward = 3
+        if pin_touched: # successful insertion
+            reward = 4
+        return reward
 
 
 class BimanualAlohaSlotInsertionTask(BimanualAlohaTask):
@@ -427,11 +421,64 @@ class BimanualAlohaSlotInsertionTask(BimanualAlohaTask):
         with physics.reset_context():
             physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
             np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+            
+            # Randomize distractor positions if random is True
+            if self.random:
+                from utils import sample_distractor_poses
+                distractor_poses = sample_distractor_poses()
+                
+                # Set distractor positions
+                distractor_names = ['distractor1', 'distractor2', 'distractor3']
+                for i, distractor_name in enumerate(distractor_names):
+                    try:
+                        joint_id = physics.model.name2id(f'{distractor_name}_joint', 'joint')
+                        pose_start_idx = 16 + (joint_id - 16) * 7  # First 16 is robot qpos, 7 is pose dim
+                        np.copyto(physics.data.qpos[pose_start_idx:pose_start_idx + 7], distractor_poses[i])
+                    except:
+                        print(f"Warning: Could not find {distractor_name}_joint")
+        
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
-        # Implement slot insertion reward logic
-        return 0
+        # Slot Insertion Reward Logic
+        touch_left_gripper = False
+        touch_right_gripper = False
+        stick_touch_table = False
+        stick_touch_slot = False
+        pins_touch = False
+
+        # Check contact pairs
+        contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            geom1 = physics.model.id2name(id_geom_1, 'geom')
+            geom2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pairs.append((geom1, geom2))
+            contact_pairs.append((geom2, geom1))
+
+        for geom1, geom2 in contact_pairs:
+            if geom1 == "stick" and geom2.startswith("right"):
+                touch_right_gripper = True
+            if geom1 == "stick" and geom2.startswith("left"):
+                touch_left_gripper = True
+            if geom1 == "table" and geom2 == "stick":
+                stick_touch_table = True
+            if geom1 == "stick" and geom2.startswith("slot-"):
+                stick_touch_slot = True
+            if geom1 == "pin-stick" and geom2 == "pin-slot":
+                pins_touch = True
+
+        reward = 0
+        if touch_left_gripper and touch_right_gripper:  # touch both
+            reward = 1
+        if touch_left_gripper and touch_right_gripper and (not stick_touch_table):  # grasp stick
+            reward = 2
+        if stick_touch_slot and (not stick_touch_table):  # peg and socket touching
+            reward = 3
+        if pins_touch:  # successful insertion
+            reward = 4
+        return reward
 
 
 class BimanualAlohaHookPackageTask(BimanualAlohaTask):
@@ -446,14 +493,51 @@ class BimanualAlohaHookPackageTask(BimanualAlohaTask):
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
-        # Implement hook package reward logic
-        return 0
+        # Hook Package Reward Logic
+        touch_left_gripper = False
+        touch_right_gripper = False
+        package_touch_table = False
+        package_touch_hook = False
+        pin_touched = False
+
+        # Check contact pairs
+        contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            geom1 = physics.model.id2name(id_geom_1, 'geom')
+            geom2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pairs.append((geom1, geom2))
+            contact_pairs.append((geom2, geom1))
+
+        for geom1, geom2 in contact_pairs:
+            if geom1.startswith("package-") and geom2.startswith("right"):
+                touch_right_gripper = True
+            if geom1.startswith("package-") and geom2.startswith("left"):
+                touch_left_gripper = True
+            if geom1 == "table" and geom2.startswith("package-"):
+                package_touch_table = True
+            if geom1 == "hook" and geom2.startswith("package-"):
+                package_touch_hook = True
+            if geom1 == "pin-package" and geom2 == "pin-hook":
+                pin_touched = True
+
+        reward = 0
+        if touch_left_gripper and touch_right_gripper:  # touch both
+            reward = 1
+        if touch_left_gripper and touch_right_gripper and (not package_touch_table):  # grasp both
+            reward = 2
+        if package_touch_hook and (not package_touch_table):
+            reward = 3
+        if pin_touched:
+            reward = 4
+        return reward
 
 
 class BimanualAlohaPourTestTubeTask(BimanualAlohaTask):
     def __init__(self, random=None):
         super().__init__(random=random)
-        self.max_reward = 4
+        self.max_reward = 3  # Pour test tube has 3 levels
 
     def initialize_episode(self, physics):
         with physics.reset_context():
@@ -462,14 +546,50 @@ class BimanualAlohaPourTestTubeTask(BimanualAlohaTask):
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
-        # Implement pour test tube reward logic
-        return 0
+        # Pour Test Tube Reward Logic (from gym_av_aloha)
+        touch_left_gripper = False
+        touch_right_gripper = False
+        tube1_touch_table = False
+        tube2_touch_table = False
+        pin_touched = False
+
+        # Check contact pairs
+        contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            geom1 = physics.model.id2name(id_geom_1, 'geom')
+            geom2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pairs.append((geom1, geom2))
+            contact_pairs.append((geom2, geom1))
+
+        for geom1, geom2 in contact_pairs:
+            if geom1.startswith("tube1-") and geom2.startswith("vx300s_7_gripper"):
+                touch_right_gripper = True
+            if geom1.startswith("tube2-") and geom2.startswith("vx300s_7_gripper"):
+                touch_left_gripper = True
+            if geom1 == "table" and geom2.startswith("tube1-"):
+                tube1_touch_table = True
+            if geom1 == "table" and geom2.startswith("tube2-"):
+                tube2_touch_table = True
+            if geom1 == "ball" and geom2 == "pin":
+                pin_touched = True
+
+        reward = 0
+        if touch_left_gripper and touch_right_gripper:  # touch both
+            reward = 1
+        if touch_left_gripper and touch_right_gripper and (not tube1_touch_table) and (not tube2_touch_table):  # grasp both
+            reward = 2
+        if pin_touched:
+            reward = 3
+        return reward
 
 
 class BimanualAlohaThreadNeedleTask(BimanualAlohaTask):
     def __init__(self, random=None):
         super().__init__(random=random)
-        self.max_reward = 4
+        self.max_reward = 5  # Thread needle has 5 levels
+        self.threaded_needle = False # New attribute to track if needle is threaded
 
     def initialize_episode(self, physics):
         with physics.reset_context():
@@ -478,8 +598,50 @@ class BimanualAlohaThreadNeedleTask(BimanualAlohaTask):
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
-        # Implement thread needle reward logic
-        return 0
+        # Thread Needle Reward Logic
+        touch_left_gripper = False
+        touch_right_gripper = False
+        needle_touch_table = False
+        needle_touch_wall = False
+        needle_touch_pin = False
+
+        # Check contact pairs
+        contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            geom1 = physics.model.id2name(id_geom_1, 'geom')
+            geom2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pairs.append((geom1, geom2))
+            contact_pairs.append((geom2, geom1))
+
+        for geom1, geom2 in contact_pairs:
+            if geom1 == "needle" and geom2.startswith("right"):
+                touch_right_gripper = True
+            if geom1 == "needle" and geom2.startswith("left"):
+                touch_left_gripper = True
+            if geom1 == "table" and geom2 == "needle":
+                needle_touch_table = True
+            if geom1 == "needle" and geom2.startswith("wall-"):
+                needle_touch_wall = True
+            if geom1 == "pin-needle" and geom2 == "pin-wall":
+                self.threaded_needle = True
+            if geom1 == "needle" and geom2 == "pin-wall":
+                needle_touch_pin = True
+
+        reward = 0
+        if touch_right_gripper:  # touch needle
+            reward = 1
+        if touch_right_gripper and (not needle_touch_table):  # grasp needle
+            reward = 2
+        if needle_touch_wall and (not needle_touch_table):  # needle touching wall
+            reward = 3
+        if self.threaded_needle:  # needle threaded
+            reward = 4
+        # grasped needle on other side
+        if touch_left_gripper and (not touch_right_gripper) and (not needle_touch_table) and (not needle_touch_pin) and self.threaded_needle:
+            reward = 5
+        return reward
 
 
 def get_action(master_bot_left, master_bot_right):

@@ -48,22 +48,10 @@ def make_ee_sim_env(task_name):
         task = InsertionEETask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
-    elif 'bimanual_aloha_cube_transfer' in task_name:
-        xml_path = os.path.join(XML_DIR, 'task_cube_transfer.xml')
-        physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaTransferCubeEETask(random=False)
-        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
-                                  n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_peg_insertion' in task_name:
         xml_path = os.path.join(XML_DIR, 'task_peg_insertion.xml')
         physics = mujoco.Physics.from_xml_path(xml_path)
         task = BimanualAlohaPegInsertionEETask(random=False)
-        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
-                                  n_sub_steps=None, flat_observation=False)
-    elif 'bimanual_aloha_color_cubes' in task_name:
-        xml_path = os.path.join(XML_DIR, 'task_color_cubes.xml')
-        physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaColorCubesEETask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_slot_insertion' in task_name:

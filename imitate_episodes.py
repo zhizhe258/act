@@ -104,10 +104,15 @@ def main(args):
 
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
-    if is_sim or task_name in ['bimanual_aloha_cube_transfer', 'bimanual_aloha_peg_insertion', 'bimanual_aloha_color_cubes', 'bimanual_aloha_slot_insertion', 'converted_bimanual_aloha_slot_insertion', 'converted_bimanual_aloha_slot_insertion_with_vel', 'bimanual_aloha_hook_package', 'bimanual_aloha_pour_test_tube', 'bimanual_aloha_thread_needle', 'trimanual_cube_transfer', 'trimanual_peg_insertion', 'trimanual_color_cubes', 'trimanual_slot_insertion', 'trimanual_hook_package', 'trimanual_pour_test_tube', 'trimanual_thread_needle']:
+    print(f"DEBUG: task_name = {task_name}, is_sim = {is_sim}")
+    if is_sim or task_name in ['bimanual_aloha_peg_insertion', 'bimanual_aloha_slot_insertion', 'converted_bimanual_aloha_slot_insertion', 'converted_bimanual_aloha_slot_insertion_with_vel_ACT', 'converted_bimanual_aloha_hook_package', 'converted_bimanual_aloha_thread_needle', 'converted_bimanual_aloha_peg_insertion', 'converted_bimanual_aloha_cube_transfer', 'trimanual_peg_insertion', 'trimanual_slot_insertion', 'trimanual_hook_package', 'trimanual_pour_test_tube', 'trimanual_thread_needle']:
+        print(f"DEBUG: Using SIM_TASK_CONFIGS for {task_name}")
         from constants import SIM_TASK_CONFIGS
         task_config = SIM_TASK_CONFIGS[task_name]
+        # 如果任务在仿真任务列表中，确保is_sim为True
+        is_sim = True
     else:
+        print(f"DEBUG: Using TASK_CONFIGS for {task_name}")
         from aloha_scripts.constants import TASK_CONFIGS
         task_config = TASK_CONFIGS[task_name]
     dataset_dir = task_config['dataset_dir']
@@ -135,33 +140,7 @@ def main(args):
                          'nheads': nheads,
                          'camera_names': camera_names,
                          }
-    elif policy_class == 'RTC_Improved':
-        enc_layers = 4
-        dec_layers = 7
-        nheads = 8
-        policy_config = {'lr': args['lr'],
-                         'num_queries': args['chunk_size'],
-                         'freeze_steps': args.get('freeze_steps', args['chunk_size'] // 4),  # d = k/4 by default
-                         'kl_weight': args['kl_weight'],
-                         'hidden_dim': args['hidden_dim'],
-                         'dim_feedforward': args['dim_feedforward'],
-                         'lr_backbone': lr_backbone,
-                         'backbone': backbone,
-                         'enc_layers': enc_layers,
-                         'dec_layers': dec_layers,
-                         'nheads': nheads,
-                         'camera_names': camera_names,
-                         'dropout': args.get('dropout', 0.1),
-                         'pre_norm': args.get('pre_norm', False),
-                         'state_dim': state_dim,
-                         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-                         # Add missing parameters needed by the model
-                         'position_embedding': 'sine',
-                         'dilation': False,
-                         'weight_decay': 1e-4,
-                         'clip_max_norm': 0.1,
-                         'masks': False,
-                         }
+
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,
                          'camera_names': camera_names,}
@@ -221,9 +200,7 @@ def main(args):
 def make_policy(policy_class, policy_config):
     if policy_class == 'ACT':
         policy = ACTPolicy(policy_config)
-    elif policy_class == 'RTC_Improved':
-        from policy_rtc_improved import RTCPolicy_Improved
-        policy = RTCPolicy_Improved(policy_config)
+
     elif policy_class == 'CNNMLP':
         policy = CNNMLPPolicy(policy_config)
     else:
@@ -234,8 +211,7 @@ def make_policy(policy_class, policy_config):
 def make_optimizer(policy_class, policy):
     if policy_class == 'ACT':
         optimizer = policy.configure_optimizers()
-    elif policy_class == 'RTC_Improved':
-        optimizer = policy.optimizer
+
     elif policy_class == 'CNNMLP':
         optimizer = policy.configure_optimizers()
     else:
@@ -308,7 +284,25 @@ def eval_bc(config, ckpt_name, save_episode=True):
         env_max_reward = 0
     else:
         from sim_env import make_sim_env
-        env = make_sim_env(task_name)
+        # 将数据集名称映射到仿真环境任务名称
+        if 'converted_single_view_aloha_slot_insertion' in task_name:
+            sim_task_name = 'bimanual_aloha_slot_insertion'
+        elif 'converted_single_view_aloha_cube_transfer' in task_name:
+            sim_task_name = 'bimanual_aloha_cube_transfer'
+        elif 'converted_bimanual_aloha_hook_package' in task_name:
+            sim_task_name = 'bimanual_aloha_hook_package'
+        elif 'converted_bimanual_aloha_thread_needle' in task_name:
+            sim_task_name = 'bimanual_aloha_thread_needle'
+        elif 'converted_bimanual_aloha_peg_insertion' in task_name:
+            sim_task_name = 'bimanual_aloha_peg_insertion'
+        elif 'converted_bimanual_aloha_slot_insertion' in task_name:
+            sim_task_name = 'bimanual_aloha_slot_insertion'
+        elif 'converted_bimanual_aloha_cube_transfer' in task_name:
+            sim_task_name = 'bimanual_aloha_pour_test_tube'  # 改为pour test tube
+        else:
+            sim_task_name = task_name
+        
+        env = make_sim_env(sim_task_name, enable_distractors=True)
         env_max_reward = env.task.max_reward
 
     query_frequency = policy_config['num_queries']
@@ -378,7 +372,13 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 qpos = pre_process(qpos_numpy_14d)
                 qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
                 qpos_history[:, t] = qpos
-                curr_image = get_image(ts, camera_names)
+                # 将相机名称映射到仿真环境中的名称
+                if 'converted_single_view_aloha_slot_insertion' in task_name or task_name.startswith('converted_bimanual_aloha_'):
+                    sim_camera_names = ['overhead_cam']  # 仿真环境中的相机名称
+                else:
+                    sim_camera_names = camera_names
+                
+                curr_image = get_image(ts, sim_camera_names)
 
                 ### query policy
                 if config['policy_class'] == "ACT":
@@ -398,21 +398,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
                         raw_action = all_actions[:, t % query_frequency]
                 elif config['policy_class'] == "CNNMLP":
                     raw_action = policy(qpos, curr_image)
-                elif config['policy_class'] == "RTC_Improved":
-                    if t % query_frequency == 0:
-                        all_actions = policy(qpos, curr_image)
-                    if temporal_agg:
-                        all_time_actions[[t], t:t+num_queries] = all_actions
-                        actions_for_curr_step = all_time_actions[:, t]
-                        actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                        actions_for_curr_step = actions_for_curr_step[actions_populated]
-                        k = 0.01
-                        exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                        exp_weights = exp_weights / exp_weights.sum()
-                        exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                        raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
-                    else:
-                        raw_action = all_actions[:, t % query_frequency]
+
                 else:
                     raise NotImplementedError
 
@@ -953,10 +939,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     policy = make_policy(policy_class, policy_config)
     policy.cuda()
     
-    # Enable RTC training if using RTC_Improved policy
-    if policy_class == 'RTC_Improved' and hasattr(policy, 'enable_rtc_training'):
-        policy.enable_rtc_training(True, rtc_weight=0.2)
-        print("RTC training enabled with initial weight 0.2")
+
     
     optimizer = make_optimizer(policy_class, policy)
 
@@ -967,11 +950,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     for epoch in tqdm(range(num_epochs)):
         print(f'\nEpoch {epoch}')
         
-        # RTC progressive training schedule
-        if policy_class == 'RTC_Improved' and hasattr(policy, 'progressive_training_schedule'):
-            policy.progressive_training_schedule(epoch, num_epochs)
-            if hasattr(policy, 'rtc_loss_weight'):
-                print(f'RTC loss weight: {policy.rtc_loss_weight:.3f}')
+
         
         # validation
         with torch.inference_mode():
@@ -1061,15 +1040,14 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', action='store', type=int, help='num_epochs', required=True)
     parser.add_argument('--lr', action='store', type=float, help='lr', required=True)
 
-    # for ACT and RTC
+    # for ACT
     parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', default=10, required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', default=100, required=False)
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', default=512, required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', default=3200, required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     
-    # for RTC_Improved
-    parser.add_argument('--freeze_steps', action='store', type=int, help='freeze steps for RTC (d), default: chunk_size//4', required=False)
+
     
     # backbone selection
     parser.add_argument('--backbone', action='store', type=str, help='backbone model (resnet18/34/50/101 or dinov2_vits14/vitb14/vitl14/vitg14)', 
