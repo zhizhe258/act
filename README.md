@@ -46,6 +46,11 @@ To set up a new terminal, run:
 
 ### Simulated experiments
 
+sim_transfer_cube_scripted
+sim_slot_insertion_scripted
+sim_cupboard_scripted 
+sim_stack_scripted
+
 We use ``sim_transfer_cube_scripted`` task in the examples below. Another option is ``sim_insertion_scripted``.
 To generated 50 episodes of scripted data, run:
 
@@ -59,6 +64,8 @@ To visualize the episode after it is collected, run
 
     python3 visualize_episodes.py --dataset_dir <data save dir> --episode_idx 0
 
+
+    
 To train ACT:
     
     # Transfer Cube task
