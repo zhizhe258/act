@@ -1,7 +1,6 @@
 # ACT: Action Chunking with Transformers
 
-### *New*: [ACT tuning tips](https://docs.google.com/document/d/1FVIZfoALXg_ZkYKaYVh-qOlaXveq5CtvJHXkY25eYhs/edit?usp=sharing)
-TL;DR: if your ACT policy is jerky or pauses in the middle of an episode, just train for longer! Success rate and smoothness can improve way after loss plateaus.
+
 
 
 
@@ -80,7 +79,7 @@ To train ACT:
     --policy_class ACT --kl_weight 10 --chunk_size 100 --hidden_dim 512 --batch_size 8 --dim_feedforward 3200 \
     --num_epochs 2000  --lr 1e-5 \
     --seed 0
-    --pose 
+    --pose_mode
 
 
 To evaluate the policy, run the same command but add ``--eval``. This loads the best validation checkpoint.
@@ -88,8 +87,18 @@ The success rate should be around 90% for transfer cube, and around 50% for inse
 To enable temporal ensembling, add flag ``--temporal_agg``.
 Videos will be saved to ``<ckpt_dir>`` for each rollout.
 You can also add ``--onscreen_render`` to see real-time rendering during evaluation.
-Here when doing peg insertion, the pose_mode could be set to similar and edge, random is the default mode
+Here when doing peg insertion, the ``--pose_mode`` could be set to similar and edge, random is the default mode
 
-For real-world data where things can be harder to model, train for at least 5000 epochs or 3-4 times the length after the loss has plateaued.
-Please refer to [tuning tips](https://docs.google.com/document/d/1FVIZfoALXg_ZkYKaYVh-qOlaXveq5CtvJHXkY25eYhs/edit?usp=sharing) for more info.
+
+
+TO Visualize the trjectory:
+
+  python3 trajectory_analysis_with_plots.py
+
+
+To Visualise the Z:
+python3 z_analysis.py 
+
+
+
 
