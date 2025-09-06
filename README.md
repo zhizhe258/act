@@ -15,7 +15,6 @@
 
 
 ### Installation
-
     conda create -n aloha python=3.8.10
     conda activate aloha
     pip install torchvision
@@ -32,7 +31,9 @@
     pip install packaging
     pip install h5py
     pip install ipython
-    cd act/detr && pip install -e .
+    pip install pandas
+    cd actnew/detr && pip install -e .
+
 
 ### Example Usages
 
