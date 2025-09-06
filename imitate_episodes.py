@@ -11,7 +11,7 @@ from einops import rearrange
 from constants import DT
 from constants import PUPPET_GRIPPER_JOINT_OPEN
 from utils import load_data # data functions
-from utils import sample_box_pose, sample_insertion_pose # robot functions
+from utils import sample_box_pose, sample_insertion_pose, sample_box_pose_random, sample_insertion_pose_random,sample_box_cupboard_pose, sample_stack_pose # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from policy import ACTPolicy, CNNMLPPolicy
 from visualize_episodes import save_videos
@@ -33,11 +33,18 @@ def main(args):
     batch_size_val = args['batch_size']
     num_epochs = args['num_epochs']
 
+    # Set pose sampling mode
+    pose_mode = args.get('pose_mode', 'random')
+    import utils
+    utils.POSE_SAMPLING_MODE = pose_mode
+    
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
     if is_sim:
-        from constants import SIM_TASK_CONFIGS
-        task_config = SIM_TASK_CONFIGS[task_name]
+        from constants import SIM_TASK_CONFIGS, get_dataset_dir
+        task_config = SIM_TASK_CONFIGS[task_name].copy()
+        # Adjust data directory based on pose mode
+        task_config['dataset_dir'] = get_dataset_dir(task_name, pose_mode)
     else:
         from aloha_scripts.constants import TASK_CONFIGS
         task_config = TASK_CONFIGS[task_name]
@@ -45,6 +52,9 @@ def main(args):
     num_episodes = task_config['num_episodes']
     episode_len = task_config['episode_len']
     camera_names = task_config['camera_names']
+    
+    print(f"Pose sampling mode: {pose_mode if is_sim else 'N/A'}")
+    print(f"Dataset directory: {dataset_dir}")
 
     # fixed parameters
     state_dim = 14
@@ -72,9 +82,28 @@ def main(args):
     else:
         raise NotImplementedError
 
+    # Training phase: train model only once
+    print(f"\n{'='*50}")
+    print("Starting model training...")
+    print(f"{'='*50}")
+    
+    # Create checkpoint directory with policy type and pose mode information
+    if is_sim:
+        pose_suffix = f"_{pose_mode}" if pose_mode != 'random' else ""
+        # Create different directories for different policy types
+        if policy_class == 'CNNMLP':
+            current_ckpt_dir = os.path.join(ckpt_dir, f"cnnmlp{pose_suffix}")
+        else:  # ACT
+            current_ckpt_dir = os.path.join(ckpt_dir, f"model{pose_suffix}")
+    else:
+        if policy_class == 'CNNMLP':
+            current_ckpt_dir = os.path.join(ckpt_dir, "cnnmlp")
+        else:  # ACT
+            current_ckpt_dir = os.path.join(ckpt_dir, "model")
+    
     config = {
         'num_epochs': num_epochs,
-        'ckpt_dir': ckpt_dir,
+        'ckpt_dir': current_ckpt_dir,
         'episode_len': episode_len,
         'state_dim': state_dim,
         'lr': args['lr'],
@@ -83,29 +112,80 @@ def main(args):
         'policy_config': policy_config,
         'task_name': task_name,
         'seed': args['seed'],
-        'temporal_agg': args['temporal_agg'],
+        'temporal_agg': False,  # No need for temporal_agg during training
         'camera_names': camera_names,
         'real_robot': not is_sim
     }
 
     if is_eval:
-        ckpt_names = [f'policy_best.ckpt']
-        results = []
-        for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
-            results.append([ckpt_name, success_rate, avg_return])
+        # Evaluation phase: determine evaluation strategy based on temporal_agg parameter
+        temporal_agg_mode = args.get('temporal_agg', False)
+        mode_str = "enabled" if temporal_agg_mode else "disabled"
+        print(f"Evaluation phase: temporal aggregation {mode_str}")
+        
+        # Set evaluation configuration
+        config['temporal_agg'] = temporal_agg_mode
+        
+        # Create evaluation directory
+        eval_suffix = "with_temporal_agg" if temporal_agg_mode else "without_temporal_agg"
+        if is_sim:
+            # Create different evaluation directories for different policy types
+            if policy_class == 'CNNMLP':
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp{pose_suffix}")
+            else:  # ACT
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}{pose_suffix}")
+        else:
+            if policy_class == 'CNNMLP':
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp")
+            else:  # ACT
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}")
+        
+        if not os.path.isdir(eval_dir):
+            os.makedirs(eval_dir)
+        
+        # Copy trained model to evaluation directory
+        import shutil
+        source_ckpt = os.path.join(current_ckpt_dir, 'policy_best.ckpt')
+        target_ckpt = os.path.join(eval_dir, 'policy_best.ckpt')
+        if os.path.exists(source_ckpt):
+            shutil.copy2(source_ckpt, target_ckpt)
+            print(f"Copied model to evaluation directory: {target_ckpt}")
+        else:
+            print(f"Warning: Cannot find trained model {source_ckpt}")
+            print("Please train the model first or check the model path")
+            return
+        
+        # Copy dataset statistics to evaluation directory
+        source_stats = os.path.join(current_ckpt_dir, 'dataset_stats.pkl')
+        target_stats = os.path.join(eval_dir, 'dataset_stats.pkl')
+        if os.path.exists(source_stats):
+            shutil.copy2(source_stats, target_stats)
+            print(f"Copied dataset statistics to evaluation directory: {target_stats}")
+        else:
+            print(f"Warning: Cannot find dataset statistics {source_stats}")
+            print("Please train the model first or check the model path")
+            return
+        
+        # Execute evaluation
+        config['ckpt_dir'] = eval_dir
+        success_rate, avg_return = eval_bc(config, 'policy_best.ckpt', save_episode=True)
+        
+        print(f"\n{'='*50}")
+        print(f"Evaluation Results (temporal aggregation {mode_str}):")
+        print(f"Success Rate: {success_rate:.3f}")
+        print(f"Average Return: {avg_return:.3f}")
+        print(f"Results saved in: {eval_dir}")
+        print(f"{'='*50}")
+        
+        return
 
-        for ckpt_name, success_rate, avg_return in results:
-            print(f'{ckpt_name}: {success_rate=} {avg_return=}')
-        print()
-        exit()
-
+    # Training phase
     train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val)
 
     # save dataset stats
-    if not os.path.isdir(ckpt_dir):
-        os.makedirs(ckpt_dir)
-    stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
+    if not os.path.isdir(current_ckpt_dir):
+        os.makedirs(current_ckpt_dir)
+    stats_path = os.path.join(current_ckpt_dir, f'dataset_stats.pkl')
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
 
@@ -113,9 +193,27 @@ def main(args):
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
 
     # save best checkpoint
-    ckpt_path = os.path.join(ckpt_dir, f'policy_best.ckpt')
+    ckpt_path = os.path.join(current_ckpt_dir, f'policy_best.ckpt')
     torch.save(best_state_dict, ckpt_path)
-    print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
+    print(f'Training completed! Best model saved at: {ckpt_path}')
+    print(f'Validation loss: {min_val_loss:.6f} @ epoch {best_epoch}')
+    
+    if not is_eval:
+        print(f"\n{'='*50}")
+        print("Training completed!")
+        print(f"Model saved at: {current_ckpt_dir}")
+        print(f"Validation loss: {min_val_loss:.6f} @ epoch {best_epoch}")
+        print(f"\nTo evaluate the model, run:")
+        print(f"# Without temporal aggregation:")
+        print(f"python3 imitate_episodes.py --eval --ckpt_dir {ckpt_dir} --task_name {task_name} --policy_class {policy_class} --batch_size {batch_size_train} --num_epochs {num_epochs} --lr {args['lr']} --seed {args['seed']} --pose_mode {pose_mode} --kl_weight {args.get('kl_weight', 'N/A')} --chunk_size {args.get('chunk_size', 'N/A')} --hidden_dim {args.get('hidden_dim', 'N/A')} --dim_feedforward {args.get('dim_feedforward', 'N/A')}")
+        print(f"# With temporal aggregation:")
+        print(f"python3 imitate_episodes.py --eval --ckpt_dir {ckpt_dir} --task_name {task_name} --policy_class {policy_class} --batch_size {batch_size_train} --num_epochs {num_epochs} --lr {args['lr']} --seed {args['seed']} --pose_mode {pose_mode} --kl_weight {args.get('kl_weight', 'N/A')} --chunk_size {args.get('chunk_size', 'N/A')} --hidden_dim {args.get('hidden_dim', 'N/A')} --dim_feedforward {args.get('dim_feedforward', 'N/A')} --temporal_agg")
+        print(f"{'='*50}")
+    else:
+        print(f"\n{'='*50}")
+        print("Evaluation completed!")
+        print(f"{'='*50}")
+        exit()
 
 
 def make_policy(policy_class, policy_config):
@@ -201,10 +299,16 @@ def eval_bc(config, ckpt_name, save_episode=True):
     for rollout_id in range(num_rollouts):
         rollout_id += 0
         ### set task
+        # Force random sampling during evaluation to test model generalization
         if 'sim_transfer_cube' in task_name:
-            BOX_POSE[0] = sample_box_pose() # used in sim reset
+            BOX_POSE[0] = sample_box_pose_random() # Force random during evaluation
         elif 'sim_insertion' in task_name:
-            BOX_POSE[0] = np.concatenate(sample_insertion_pose()) # used in sim reset
+            BOX_POSE[0] = np.concatenate(sample_insertion_pose_random()) # Force random during evaluation
+        elif 'sim_cupboard_scripted' in task_name:
+            box_pose, target_pose, drawer_initial_pose= sample_box_cupboard_pose()
+            BOX_POSE[0] = np.concatenate([box_pose, target_pose, drawer_initial_pose])
+        elif 'sim_stack_scripted' in task_name:
+            BOX_POSE[0] = np.concatenate(sample_stack_pose()) # used in sim reset    
 
         ts = env.reset()
 
@@ -431,5 +535,7 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    parser.add_argument('--pose_mode', action='store', type=str, choices=['fixed', 'random', 'edge', 'similar', 'uniform'], 
+                        default='random', help='pose sampling mode: fixed, random, edge, or similar')
     
     main(vars(parser.parse_args()))

@@ -3,6 +3,7 @@ import torch
 import os
 import h5py
 from torch.utils.data import TensorDataset, DataLoader
+from scipy.stats import qmc
 
 import IPython
 e = IPython.embed
@@ -130,43 +131,274 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
 
 ### env utils
 
+# Pose sampling configuration
+POSE_SAMPLING_MODE = 'random'  # 'fixed', 'random', 'edge', 'similar', 'uniform'
+
+# Fixed poses
+FIXED_CUBE_POSE = [0.1, 0.5, 0.05, 1, 0, 0, 0]
+FIXED_PEG_POSE = [0.15, 0.5, 0.05, 1, 0, 0, 0]
+FIXED_SOCKET_POSE = [-0.15, 0.5, 0.05, 1, 0, 0, 0]
+
+# Sampling ranges
+CUBE_RANGES = {'x': [0.0, 0.2], 'y': [0.4, 0.6], 'z': [0.05, 0.05]}
+PEG_RANGES = {'x': [0.1, 0.2], 'y': [0.4, 0.6], 'z': [0.05, 0.05]}
+SOCKET_RANGES = {'x': [-0.2, -0.1], 'y': [0.4, 0.6], 'z': [0.05, 0.05]}
+
+# Similar mode: small ranges around fixed positions for fine-tuning tasks
+SIMILAR_PEG_RANGES = {'x': [0.16, 0.19], 'y': [0.48, 0.52], 'z': [0.05, 0.05]}  # 2cm x 2cm range around center
+SIMILAR_SOCKET_RANGES = {'x': [-0.19, -0.16], 'y': [0.48, 0.52], 'z': [0.05, 0.05]}  # 2cm x 2cm range around center
+
+# Global counters for LHS sampling
+_box_pose_counter = 0
+_peg_pose_counter = 0
+
 def sample_box_pose():
-    x_range = [0.0, 0.2]
-    y_range = [0.4, 0.6]
-    z_range = [0.05, 0.05]
-
-    ranges = np.vstack([x_range, y_range, z_range])
-    cube_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
-
+    global _box_pose_counter
+    
+    if POSE_SAMPLING_MODE == 'fixed':
+        return np.array(FIXED_CUBE_POSE)
+    
+    elif POSE_SAMPLING_MODE == 'uniform':
+        # Uniform mode: use Latin Hypercube Sampling (LHS) for uniform distribution
+        # Create LHS sampler for 3D space
+        sampler = qmc.LatinHypercube(d=3, seed=42)
+        # Generate samples in [0,1]^3
+        samples = sampler.random(n=1000)
+        # Scale to actual ranges
+        x_range = CUBE_RANGES['x']
+        y_range = CUBE_RANGES['y']
+        z_range = CUBE_RANGES['z']
+        
+        # Get current sample based on counter
+        sample_idx = _box_pose_counter % 1000
+        x = samples[sample_idx, 0] * (x_range[1] - x_range[0]) + x_range[0]
+        y = samples[sample_idx, 1] * (y_range[1] - y_range[0]) + y_range[0]
+        z = samples[sample_idx, 2] * (z_range[1] - z_range[0]) + z_range[0]
+        
+        _box_pose_counter += 1
+        cube_position = np.array([x, y, z])
+    
+    else:  # random
+        x = np.random.uniform(CUBE_RANGES['x'][0], CUBE_RANGES['x'][1])
+        y = np.random.uniform(CUBE_RANGES['y'][0], CUBE_RANGES['y'][1])
+        z = np.random.uniform(CUBE_RANGES['z'][0], CUBE_RANGES['z'][1])
+        cube_position = np.array([x, y, z])
+    
     cube_quat = np.array([1, 0, 0, 0])
     return np.concatenate([cube_position, cube_quat])
 
 def sample_insertion_pose():
-    # Peg
-    x_range = [0.1, 0.2]
-    y_range = [0.4, 0.6]
-    z_range = [0.05, 0.05]
-
-    ranges = np.vstack([x_range, y_range, z_range])
-    peg_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
-
+    global _peg_pose_counter
+    
+    if POSE_SAMPLING_MODE == 'fixed':
+        peg_pose = np.array(FIXED_PEG_POSE)
+        socket_pose = np.array(FIXED_SOCKET_POSE)
+        return peg_pose, socket_pose
+    
+    elif POSE_SAMPLING_MODE == 'uniform':
+        # Uniform mode: use Latin Hypercube Sampling (LHS) for uniform distribution
+        # Create LHS sampler for 4D space (peg_x, peg_y, socket_x, socket_y)
+        sampler = qmc.LatinHypercube(d=4, seed=42)
+        # Generate samples in [0,1]^4
+        samples = sampler.random(n=1000)
+        
+        # Get current sample based on counter
+        sample_idx = _peg_pose_counter % 1000
+        
+        # Peg position: LHS sampling
+        peg_x = samples[sample_idx, 0] * (PEG_RANGES['x'][1] - PEG_RANGES['x'][0]) + PEG_RANGES['x'][0]
+        peg_y = samples[sample_idx, 1] * (PEG_RANGES['y'][1] - PEG_RANGES['y'][0]) + PEG_RANGES['y'][0]
+        peg_position = np.array([peg_x, peg_y, PEG_RANGES['z'][0]])
+        
+        # Socket position: LHS sampling
+        socket_x = samples[sample_idx, 2] * (SOCKET_RANGES['x'][1] - SOCKET_RANGES['x'][0]) + SOCKET_RANGES['x'][0]
+        socket_y = samples[sample_idx, 3] * (SOCKET_RANGES['y'][1] - SOCKET_RANGES['y'][0]) + SOCKET_RANGES['y'][0]
+        socket_position = np.array([socket_x, socket_y, SOCKET_RANGES['z'][0]])
+        
+        _peg_pose_counter += 1
+    
+    elif POSE_SAMPLING_MODE == 'edge':
+        # Edge mode: peg and socket only appear at the edge positions of their respective Y-axis ranges
+        # Use LHS sampling for X-axis distribution, Y-axis randomly distributed along the edges
+        
+        # Create LHS sampler for 2D space (peg_x, socket_x)
+        sampler = qmc.LatinHypercube(d=2, seed=42)
+        samples = sampler.random(n=1000)
+        
+        # Get current sample based on counter
+        sample_idx = _peg_pose_counter % 1000
+        
+        # Peg position: X coordinate LHS distribution, Y coordinate randomly along edges
+        peg_x = samples[sample_idx, 0] * (PEG_RANGES['x'][1] - PEG_RANGES['x'][0]) + PEG_RANGES['x'][0]
+        # Randomly choose between lower edge (0.02 range) and upper edge (0.02 range)
+        if np.random.random() < 0.5:
+            peg_y = np.random.uniform(PEG_RANGES['y'][0], PEG_RANGES['y'][0] + 0.02)  # Lower edge
+        else:
+            peg_y = np.random.uniform(PEG_RANGES['y'][1] - 0.02, PEG_RANGES['y'][1])  # Upper edge
+        peg_position = np.array([peg_x, peg_y, PEG_RANGES['z'][0]])
+        
+        # Socket position: X coordinate LHS distribution, Y coordinate randomly along edges
+        socket_x = samples[sample_idx, 1] * (SOCKET_RANGES['x'][1] - SOCKET_RANGES['x'][0]) + SOCKET_RANGES['x'][0]
+        # Randomly choose between lower edge (0.02 range) and upper edge (0.02 range)
+        if np.random.random() < 0.5:
+            socket_y = np.random.uniform(SOCKET_RANGES['y'][0], SOCKET_RANGES['y'][0] + 0.02)  # Lower edge
+        else:
+            socket_y = np.random.uniform(SOCKET_RANGES['y'][1] - 0.02, SOCKET_RANGES['y'][1])  # Upper edge
+        socket_position = np.array([socket_x, socket_y, SOCKET_RANGES['z'][0]])
+        
+        _peg_pose_counter += 1
+    
+    elif POSE_SAMPLING_MODE == 'similar':
+        # Similar mode: peg and socket move in very small ranges (fine-tuning tasks)
+        # Use LHS sampling for small range distribution
+        
+        # Create LHS sampler for 4D space (peg_x, peg_y, socket_x, socket_y)
+        sampler = qmc.LatinHypercube(d=4, seed=42)
+        samples = sampler.random(n=1000)
+        
+        # Get current sample based on counter
+        sample_idx = _peg_pose_counter % 1000
+        
+        # Peg position: LHS distribution in small range
+        peg_x = samples[sample_idx, 0] * (SIMILAR_PEG_RANGES['x'][1] - SIMILAR_PEG_RANGES['x'][0]) + SIMILAR_PEG_RANGES['x'][0]
+        peg_y = samples[sample_idx, 1] * (SIMILAR_PEG_RANGES['y'][1] - SIMILAR_PEG_RANGES['y'][0]) + SIMILAR_PEG_RANGES['y'][0]
+        peg_position = np.array([peg_x, peg_y, SIMILAR_PEG_RANGES['z'][0]])
+        
+        # Socket position: LHS distribution in small range
+        socket_x = samples[sample_idx, 2] * (SIMILAR_SOCKET_RANGES['x'][1] - SIMILAR_SOCKET_RANGES['x'][0]) + SIMILAR_SOCKET_RANGES['x'][0]
+        socket_y = samples[sample_idx, 3] * (SIMILAR_SOCKET_RANGES['y'][1] - SIMILAR_SOCKET_RANGES['y'][0]) + SIMILAR_SOCKET_RANGES['y'][0]
+        socket_position = np.array([socket_x, socket_y, SIMILAR_SOCKET_RANGES['z'][0]])
+        
+        _peg_pose_counter += 1
+    
+    else:  # random
+        # Peg random sampling
+        peg_x = np.random.uniform(PEG_RANGES['x'][0], PEG_RANGES['x'][1])
+        peg_y = np.random.uniform(PEG_RANGES['y'][0], PEG_RANGES['y'][1])
+        peg_z = np.random.uniform(PEG_RANGES['z'][0], PEG_RANGES['z'][1])
+        peg_position = np.array([peg_x, peg_y, peg_z])
+        
+        # Socket random sampling
+        socket_x = np.random.uniform(SOCKET_RANGES['x'][0], SOCKET_RANGES['x'][1])
+        socket_y = np.random.uniform(SOCKET_RANGES['y'][0], SOCKET_RANGES['y'][1])
+        socket_z = np.random.uniform(SOCKET_RANGES['z'][0], SOCKET_RANGES['z'][1])
+        socket_position = np.array([socket_x, socket_y, socket_z])
+    
     peg_quat = np.array([1, 0, 0, 0])
-    peg_pose = np.concatenate([peg_position, peg_quat])
-
-    # Socket
-    x_range = [-0.2, -0.1]
-    y_range = [0.4, 0.6]
-    z_range = [0.05, 0.05]
-
-    ranges = np.vstack([x_range, y_range, z_range])
-    socket_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
-
     socket_quat = np.array([1, 0, 0, 0])
+    peg_pose = np.concatenate([peg_position, peg_quat])
     socket_pose = np.concatenate([socket_position, socket_quat])
-
+    
     return peg_pose, socket_pose
 
-### helper functions
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+# Functions for forced random sampling during evaluation
+def sample_box_pose_random():
+    """Force random sampling during evaluation, unaffected by POSE_SAMPLING_MODE"""
+    x = np.random.uniform(CUBE_RANGES['x'][0], CUBE_RANGES['x'][1])
+    y = np.random.uniform(CUBE_RANGES['y'][0], CUBE_RANGES['y'][1])
+    z = np.random.uniform(CUBE_RANGES['z'][0], CUBE_RANGES['z'][1])
+    cube_position = np.array([x, y, z])
+    cube_quat = np.array([1, 0, 0, 0])
+    return np.concatenate([cube_position, cube_quat])
+
+def sample_insertion_pose_random():
+    """Force random sampling during evaluation, unaffected by POSE_SAMPLING_MODE"""
+    # Peg random sampling
+    peg_x = np.random.uniform(PEG_RANGES['x'][0], PEG_RANGES['x'][1])
+    peg_y = np.random.uniform(PEG_RANGES['y'][0], PEG_RANGES['y'][1])
+    peg_z = np.random.uniform(PEG_RANGES['z'][0], PEG_RANGES['z'][1])
+    peg_position = np.array([peg_x, peg_y, peg_z])
+    
+    # Socket random sampling
+    socket_x = np.random.uniform(SOCKET_RANGES['x'][0], SOCKET_RANGES['x'][1])
+    socket_y = np.random.uniform(SOCKET_RANGES['y'][0], SOCKET_RANGES['y'][1])
+    socket_z = np.random.uniform(SOCKET_RANGES['z'][0], SOCKET_RANGES['z'][1])
+    socket_position = np.array([socket_x, socket_y, socket_z])
+    
+    peg_quat = np.array([1, 0, 0, 0])
+    socket_quat = np.array([1, 0, 0, 0])
+    peg_pose = np.concatenate([peg_position, peg_quat])
+    socket_pose = np.concatenate([socket_position, socket_quat])
+  
+    
+    
+    return peg_pose, socket_pose
+
+
+
+# Cupboard
+def sample_box_cupboard_pose():
+    # box long
+    x_range = [0.15, 0.20]  # 0.15 -- 0.20
+    y_range = [0.45, 0.55]  # 0.45 -- 0.55
+    z_range = [0.05, 0.05]
+
+    ranges = np.vstack([x_range, y_range, z_range])
+    box_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+
+    box_quat = np.array([1, 0, 0, 0])
+    box_pose = np.concatenate([box_position, box_quat])
+
+    # target box
+    x_range = [-0.01, -0.01]
+    y_range = [0.6, 0.6]
+    z_range = [0.05, 0.05]
+
+    ranges = np.vstack([x_range, y_range, z_range])
+    target_box_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+
+    target_box_quat = np.array([1, 0, 0, 0])
+    target_box_pose = np.concatenate([target_box_position, target_box_quat])
+
+
+    drawer_initial_pose= [0.0] 
+
+    return box_pose, target_box_pose, drawer_initial_pose
+
+
+def sample_stack_pose():
+    """
+    Sample random poses for the three blocks in cupboard style
+    """
+    # Green block (base block)
+    x_range = [-0.05, 0.05]
+    y_range = [0.42, 0.48]  
+    z_range = [0.025, 0.025]
+    
+    ranges = np.vstack([x_range, y_range, z_range])
+    green_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+    
+    green_quat = np.array([1, 0, 0, 0])
+    green_pose = np.concatenate([green_position, green_quat])
+    
+    # Red block
+    x_range = [-0.16, -0.10]
+    y_range = [0.42, 0.48]
+    z_range = [0.02, 0.02]
+    
+    ranges = np.vstack([x_range, y_range, z_range])
+    red_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+    
+    red_quat = np.array([1, 0, 0, 0])
+    red_pose = np.concatenate([red_position, red_quat])
+    
+    # Blue block  
+    x_range = [0.10, 0.20]
+    y_range = [0.42, 0.48]
+    z_range = [0.02, 0.02]
+    
+    ranges = np.vstack([x_range, y_range, z_range])
+    blue_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
+    
+    blue_quat = np.array([1, 0, 0, 0])
+    blue_pose = np.concatenate([blue_position, blue_quat])
+    
+    return green_pose, red_pose, blue_pose
 
 def compute_dict_mean(epoch_dicts):
     result = {k: None for k in epoch_dicts[0]}
@@ -183,7 +415,3 @@ def detach_dict(d):
     for k, v in d.items():
         new_d[k] = v.detach()
     return new_d
-
-def set_seed(seed):
-    torch.manual_seed(seed)
-    np.random.seed(seed)

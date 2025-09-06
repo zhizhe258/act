@@ -1,0 +1,73 @@
+<mujoco>
+    <include file="scene.xml"/>
+    <include file="vx300s_dependencies.xml"/>
+    
+    <equality>
+        <weld body1="mocap_left" body2="vx300s_left/gripper_link" solref="0.01 1" solimp=".25 .25 0.001" />
+        <weld body1="mocap_right" body2="vx300s_right/gripper_link" solref="0.01 1" solimp=".25 .25 0.001" />
+    </equality>
+    
+    <worldbody>
+        <include file="vx300s_left.xml" />
+        <include file="vx300s_right.xml" />
+        
+        <!-- 左臂mocap控制点 -->
+        <body mocap="true" name="mocap_left" pos="0.095 0.50 0.425">
+            <site pos="0 0 0" size="0.003 0.003 0.03" type="box" name="mocap_left_site1" rgba="1 0 0 1"/>
+            <site pos="0 0 0" size="0.003 0.03 0.003" type="box" name="mocap_left_site2" rgba="1 0 0 1"/>
+            <site pos="0 0 0" size="0.03 0.003 0.003" type="box" name="mocap_left_site3" rgba="1 0 0 1"/>
+        </body>
+        
+        <!-- 右臂mocap控制点 -->
+        <body mocap="true" name="mocap_right" pos="-0.095 0.50 0.425">
+            <site pos="0 0 0" size="0.003 0.003 0.03" type="box" name="mocap_right_site1" rgba="1 0 0 1"/>
+            <site pos="0 0 0" size="0.003 0.03 0.003" type="box" name="mocap_right_site2" rgba="1 0 0 1"/>
+            <site pos="0 0 0" size="0.03 0.003 0.003" type="box" name="mocap_right_site3" rgba="1 0 0 1"/>
+        </body>
+        
+        <!-- 绿色积木 (基座，放在目标区域) -->
+        <body name="green_block" pos="0.0 0.5 0.025">
+            <joint name="green_block_joint" type="free" frictionloss="0.01" />
+            <inertial pos="0 0 0" mass="0.08" diaginertia="0.001 0.001 0.001" />
+            <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="1 0.005 0.0001" 
+                  pos="0 0 0" size="0.025 0.025 0.025" type="box" 
+                  name="green_block" rgba="0 1 0 1" />
+        </body>
+
+        <!-- 红色积木 (待堆叠) -->
+        <body name="red_block" pos="-0.15 0.5 0.025">
+            <joint name="red_block_joint" type="free" frictionloss="0.01" />
+            <inertial pos="0 0 0" mass="0.08" diaginertia="0.001 0.001 0.001" />
+            <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="1 0.005 0.0001" 
+                  pos="0 0 0" size="0.025 0.025 0.025" type="box" 
+                  name="red_block" rgba="1 0 0 1" />
+        </body>
+        
+        <!-- 蓝色积木 (待堆叠) -->
+        <body name="blue_block" pos="0.15 0.5 0.025">
+            <joint name="blue_block_joint" type="free" frictionloss="0.01" />
+            <inertial pos="0 0 0" mass="0.08" diaginertia="0.001 0.001 0.001" />
+            <geom condim="4" solimp="2 1 0.01" solref="0.01 1" friction="1 0.005 0.0001" 
+                  pos="0 0 0" size="0.025 0.025 0.025" type="box" 
+                  name="blue_block" rgba="0 0 1 1" />
+        </body>
+        
+        
+    </worldbody>
+    
+    <actuator>
+        <!-- 左臂夹爪控制 -->
+        <position ctrllimited="true" ctrlrange="0.021 0.057" joint="vx300s_left/left_finger" kp="200" user="1"/>
+        <position ctrllimited="true" ctrlrange="-0.057 -0.021" joint="vx300s_left/right_finger" kp="200" user="1"/>
+        
+        <!-- 右臂夹爪控制 -->
+        <position ctrllimited="true" ctrlrange="0.021 0.057" joint="vx300s_right/left_finger" kp="200" user="1"/>
+        <position ctrllimited="true" ctrlrange="-0.057 -0.021" joint="vx300s_right/right_finger" kp="200" user="1"/>
+    </actuator>
+    
+    <keyframe>
+        <!-- 初始状态：绿色积木在目标区域作为基座，红蓝积木在两侧 -->
+        <key name="initial" qpos="0 -0.96 1.16 0 -0.3 0 0.024 -0.024  0 -0.96 1.16 0 -0.3 0 0.024 -0.024  0.0 0.5 0.025 1 0 0 0  -0.15 0.5 0.025 1 0 0 0  0.15 0.5 0.025 1 0 0 0"/>
+    </keyframe>
+    
+</mujoco>

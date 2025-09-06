@@ -47,6 +47,19 @@ def make_sim_env(task_name):
         task = InsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
+    elif 'sim_cupboard_scripted' in task_name:
+        xml_path = os.path.join(XML_DIR, f'bimanual_viperx_cupboard.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = CupboardTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
+        
+    elif 'sim_stack_scripted' in task_name:
+        xml_path = os.path.join(XML_DIR, f'bimanual_viperx_stack.xml')
+        physics = mujoco.Physics.from_xml_path(xml_path)
+        task = StackTask(random=False)
+        env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
+                                  n_sub_steps=None, flat_observation=False)
     else:
         raise NotImplementedError
     return env
@@ -227,6 +240,204 @@ class InsertionTask(BimanualViperXTask):
         if pin_touched: # successful insertion
             reward = 4
         return reward
+
+class CupboardTask(BimanualViperXTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 6  # 增加最大奖励
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        # TODO Notice: this function does not randomize the env configuration. Instead, set BOX_POSE from outside
+        # reset qpos, control and box position
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = START_ARM_POSE
+            np.copyto(physics.data.ctrl, START_ARM_POSE)
+            assert BOX_POSE[0] is not None
+            physics.named.data.qpos[-15:] = BOX_POSE[0]  # record_sim_episodes
+            # print(f"{BOX_POSE=}")
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_env_state(physics):
+        env_state = physics.data.qpos.copy()[16:]
+        return env_state
+
+    def get_reward(self, physics):
+        """
+        改进的双臂协作抽屉任务奖励函数
+        """
+        # 获取所有接触对
+        all_contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            name_geom_1 = physics.model.id2name(id_geom_1, 'geom')
+            name_geom_2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pair = (name_geom_1, name_geom_2)
+            all_contact_pairs.append(contact_pair)
+
+        # 检测接触状态
+        touch_left_gripper_handle = ("handle_box", "vx300s_left/10_left_gripper_finger") in all_contact_pairs
+        touch_right_gripper_box = ("green_box", "vx300s_right/10_right_gripper_finger") in all_contact_pairs
+        box_touch_table = ("green_box", "table") in all_contact_pairs
+        box_touch_target = ("green_box", "target_box") in all_contact_pairs
+        
+        # 获取抽屉位置
+        drawer_position = physics.named.data.qpos['drawer_joint']
+        drawer_opened = drawer_position > 0.05
+        drawer_fully_opened = drawer_position > 0.10
+        
+        # 获取绿色盒子位置和速度
+        box_pos = physics.named.data.qpos['green_box_joint'][:3]
+        box_vel = physics.named.data.qvel['green_box_joint'][:3]
+        box_speed = np.linalg.norm(box_vel)
+        
+        # 抽屉内部区域
+        drawer_interior_x_range = [-0.28, -0.12]
+        drawer_interior_y_range = [0.45, 0.75]
+        drawer_interior_z_range = [0.04, 0.12]
+        
+        box_in_drawer = (drawer_interior_x_range[0] <= box_pos[0] <= drawer_interior_x_range[1] and
+                        drawer_interior_y_range[0] <= box_pos[1] <= drawer_interior_y_range[1] and
+                        drawer_interior_z_range[0] <= box_pos[2] <= drawer_interior_z_range[1])
+
+        # 分阶段奖励
+        reward = 0
+        
+        # 阶段1：左臂接触抽屉把手
+        if touch_left_gripper_handle:
+            reward = 1
+        
+        # 阶段2：抽屉打开
+        if drawer_opened:
+            reward = 2
+        
+        # 阶段3：右臂抓取物体
+        if touch_right_gripper_box:
+            reward = max(reward, 2)
+        
+        # 阶段4：物体被提起
+        if touch_right_gripper_box and not box_touch_table:
+            reward = max(reward, 3)
+        
+        # 阶段5：双臂协作完成
+        if drawer_opened and touch_right_gripper_box and not box_touch_table:
+            reward = 4
+        
+        # 检查方块的不良接触（被抓取后不应该碰到的地方）
+        bad_box_contacts = [
+            ("green_box", "cupboard"),      # 撞击柜体
+            ("green_box", "handle_box"),    # 撞击把手
+            ("green_box", "vx300s_left"),   # 撞击左臂
+        ]
+        has_bad_contact = any(contact in all_contact_pairs for contact in bad_box_contacts)
+        
+        # 阶段6：成功放入抽屉 - 检查接触质量
+        if box_in_drawer or (box_touch_target and not box_touch_table):
+            # 只有在没有不良接触时才给满分
+            if not has_bad_contact:
+                reward = 6  # 干净的放置
+            else:
+                reward = 5  # 有碰撞的放置，减分
+        
+        return reward
+
+
+
+
+
+class StackTask(BimanualViperXTask):
+    def __init__(self, random=None):
+        super().__init__(random=random)
+        self.max_reward = 4
+
+    def initialize_episode(self, physics):
+        """Sets the state of the environment at the start of each episode."""
+        # TODO Notice: this function does not randomize the env configuration. Instead, set BLOCK_POSES from outside
+        # reset qpos, control and block positions
+        with physics.reset_context():
+            physics.named.data.qpos[:16] = START_ARM_POSE
+            np.copyto(physics.data.ctrl, START_ARM_POSE)
+            assert BOX_POSE[0] is not None
+            physics.named.data.qpos[-7*3:] = BOX_POSE[0]  # three blocks
+            # print(f"{BLOCK_POSES=}")
+        super().initialize_episode(physics)
+
+    @staticmethod
+    def get_env_state(physics):
+        env_state = physics.data.qpos.copy()[16:]
+        return env_state
+
+    def get_reward(self, physics):
+
+        
+        # Check current contacts
+        all_contact_pairs = []
+        for i_contact in range(physics.data.ncon):
+            id_geom_1 = physics.data.contact[i_contact].geom1
+            id_geom_2 = physics.data.contact[i_contact].geom2
+            name_geom_1 = physics.model.id2name(id_geom_1, 'geom')
+            name_geom_2 = physics.model.id2name(id_geom_2, 'geom')
+            contact_pair = (name_geom_1, name_geom_2)
+            all_contact_pairs.append(contact_pair)
+
+        # Check gripper contacts
+        touch_red_left = ("red_block", "vx300s_left/10_left_gripper_finger") in all_contact_pairs
+        touch_blue_right = ("blue_block", "vx300s_right/10_right_gripper_finger") in all_contact_pairs
+        
+        # Check table contacts
+        red_touch_table = ("red_block", "table") in all_contact_pairs
+        blue_touch_table = ("blue_block", "table") in all_contact_pairs
+        green_touch_table = ("green_block", "table") in all_contact_pairs
+
+        # Check block-to-block contacts for stacking
+        red_on_green = ("green_block", "red_block") in all_contact_pairs
+        blue_on_red = ("red_block", "blue_block") in all_contact_pairs
+
+        # 分阶段奖励设计
+        reward = 0
+        
+        # 阶段1：左臂抓取红色方块
+        if touch_red_left:
+            reward = 1
+            
+        # 阶段2：红色方块成功堆叠在绿色上
+        if red_on_green and not red_touch_table:
+            reward = 2
+            
+        # 阶段3：右臂抓取蓝色方块（可以与阶段2并行）
+        if touch_blue_right:
+            reward = max(reward, 2)  # 至少2分
+            
+        # 阶段4：蓝色方块被提起（脱离桌面）
+        if touch_blue_right and not blue_touch_table:
+            reward = max(reward, 3)
+            
+            
+        # 阶段6：完美三层塔 - 蓝色成功放在红色上
+        if blue_on_red and red_on_green and not blue_touch_table and not red_touch_table:
+            reward = 4
+
+    
+        return reward
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def get_action(master_bot_left, master_bot_right):

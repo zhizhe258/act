@@ -148,6 +148,126 @@ class InsertionPolicy(BasePolicy):
 
         ]
 
+# Cupboard
+class CupboardPolicy(BasePolicy):
+
+    def generate_trajectory(self, ts_first):
+        init_mocap_pose_right = ts_first.observation['mocap_pose_right']
+        init_mocap_pose_left = ts_first.observation['mocap_pose_left']
+
+        box_info = np.array(ts_first.observation['env_state'])
+        box_xyz = box_info[:3]
+        box_quat = box_info[3:]
+
+        #
+        gripper_pick_quat_right = Quaternion(init_mocap_pose_right[3:])
+        gripper_pick_quat_right = gripper_pick_quat_right * Quaternion(axis=[0.0, 1.0, 0.0], degrees=-60)
+        gripper_pick_quat_right_end = gripper_pick_quat_right * Quaternion(axis=[0.0, 1.0, 0.0], degrees=30)
+        #
+        gripper_pick_quat_left = Quaternion(init_mocap_pose_left[3:])
+        gripper_pick_quat_left = gripper_pick_quat_left * Quaternion(axis=[0.0, 1.0, 0.0], degrees=60)
+
+
+        meet_xyz_left = np.array([-0.1, 0.5, 0.25])
+        meet_xyz_right = np.array([0.1, 0.5, 0.25])
+
+
+        self.left_trajectory = [
+            {"t": 0, "xyz": init_mocap_pose_left[:3], "quat": init_mocap_pose_left[3:], "gripper": 0},  # sleep
+            {"t": 90, "xyz": meet_xyz_left + np.array([-0.05, 0.1, -0.05]), "quat": gripper_pick_quat_left.elements,"gripper": 1},
+            {"t": 130, "xyz": meet_xyz_left + np.array([-0.05, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements,"gripper": 1},
+            {"t": 170, "xyz": meet_xyz_left + np.array([-0.05, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements,"gripper": 0},
+            {"t": 200, "xyz": meet_xyz_left + np.array([-0.1, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements,"gripper": 0},
+            {"t": 220, "xyz": meet_xyz_left + np.array([-0.15, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements, "gripper": 0},
+            {"t": 280, "xyz": meet_xyz_left + np.array([-0.2, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements,"gripper": 0},
+            {"t": 310, "xyz": meet_xyz_left + np.array([-0.23, 0.1, -0.22]), "quat": gripper_pick_quat_left.elements, "gripper": 0},
+            {"t": 360, "xyz": meet_xyz_left + np.array([-0.15, 0.0, -0.05]), "quat": gripper_pick_quat_left.elements,"gripper": 1},  # open gripper
+            {"t": 400, "xyz": meet_xyz_left + np.array([-0.15, 0.0, 0.0]), "quat": np.array([1, 0, 0, 0]),"gripper": 0},  # stay
+        ]
+
+        self.right_trajectory = [
+            {"t": 0, "xyz": init_mocap_pose_right[:3], "quat": init_mocap_pose_right[3:], "gripper": 0}, # sleep
+            {"t": 90, "xyz": box_xyz + np.array([0.0, 0.0, 0.08]), "quat": gripper_pick_quat_right.elements, "gripper": 1},
+            {"t": 130, "xyz": box_xyz + np.array([0.0, 0.0, -0.03]), "quat": gripper_pick_quat_right.elements, "gripper": 1},
+            {"t": 170, "xyz": box_xyz + np.array([0.0, 0.0, -0.03]), "quat": gripper_pick_quat_right.elements, "gripper": 0},
+            {"t": 200, "xyz": meet_xyz_right + np.array([0.0, 0.0, 0]), "quat": gripper_pick_quat_right.elements, "gripper": 0},
+            {"t": 220, "xyz": meet_xyz_right + np.array([-0.05, 0.05, 0.05]), "quat": gripper_pick_quat_right.elements, "gripper": 0},
+            {"t": 280, "xyz": meet_xyz_right + np.array([-0.15, 0.08, 0.1]), "quat": gripper_pick_quat_right_end.elements,"gripper": 0},
+            {"t": 310, "xyz": meet_xyz_right + np.array([-0.3, 0.12, 0.1]), "quat": gripper_pick_quat_right_end.elements, "gripper": 1},  # open gripper
+            {"t": 360, "xyz": meet_xyz_right + np.array([-0.3, 0.12, 0.1]), "quat": gripper_pick_quat_right_end.elements, "gripper": 0},
+            {"t": 400, "xyz": meet_xyz_right + np.array([0.0, 0.0, 0.05]), "quat": np.array([1, 0, 0, 0]), "gripper": 0}, # stay
+        ]
+
+
+
+class StackPolicy(BasePolicy):
+    
+    def generate_trajectory(self, ts_first):
+        init_mocap_pose_right = ts_first.observation['mocap_pose_right']
+        init_mocap_pose_left = ts_first.observation['mocap_pose_left']
+
+        # Get block information from env_state
+        env_state = np.array(ts_first.observation['env_state'])
+        green_info = env_state[:7]       # Green block (base)
+        red_info = env_state[7:14]       # Red block  
+        blue_info = env_state[14:21]     # Blue block
+        
+        green_xyz = green_info[:3]
+        red_xyz = red_info[:3]
+        blue_xyz = blue_info[:3]
+
+        # Calculate gripper orientations
+        gripper_pick_quat_right = Quaternion(init_mocap_pose_right[3:])
+        gripper_pick_quat_right = gripper_pick_quat_right * Quaternion(axis=[0.0, 1.0, 0.0], degrees=-60)  # Downward grasp
+
+        gripper_pick_quat_left = Quaternion(init_mocap_pose_left[3:])
+        gripper_pick_quat_left = gripper_pick_quat_left * Quaternion(axis=[0.0, 1.0, 0.0], degrees=60)   # Downward grasp
+
+        # Define intermediate positions for smooth handoff
+        # Stacking positions
+        stack_position_1 = green_xyz + np.array([0, 0, 0.055])  # Red on green
+        stack_position_2 = green_xyz + np.array([0, 0, 0.105])  # Blue on red
+        
+        # Left arm trajectory: Pick red block and place on green, then return home
+        self.left_trajectory = [
+            {"t": 0, "xyz": init_mocap_pose_left[:3], "quat": init_mocap_pose_left[3:], "gripper": 1},  # sleep
+            {"t": 40, "xyz": red_xyz + np.array([0, 0, 0.08]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # approach red
+            {"t": 65, "xyz": red_xyz + np.array([0, 0, 0.04]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # intermediate descent
+            {"t": 90, "xyz": red_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # go down
+            {"t": 120, "xyz": red_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # stabilize position
+            {"t": 130, "xyz": red_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # grasp red
+            {"t": 150, "xyz": red_xyz + np.array([0, 0, 0.10]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # lift red fully
+            {"t": 175, "xyz": stack_position_1 + np.array([0, 0, 0.12]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # approach stack high
+            {"t": 195, "xyz": stack_position_1 + np.array([0, 0, 0.08]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # approach stack
+            {"t": 210, "xyz": stack_position_1 + np.array([0, 0, 0.04]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # lower carefully
+            {"t": 225, "xyz": stack_position_1 + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_left.elements, "gripper": 0},  # final position
+            {"t": 240, "xyz": stack_position_1 + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # release red
+            {"t": 260, "xyz": stack_position_1 + np.array([0, 0, 0.10]), "quat": gripper_pick_quat_left.elements, "gripper": 1},  # move up
+            {"t": 280, "xyz": init_mocap_pose_left[:3], "quat": init_mocap_pose_left[3:], "gripper": 1},  # return to home position
+            {"t": 400, "xyz": init_mocap_pose_left[:3], "quat": init_mocap_pose_left[3:], "gripper": 1},  # stay at home
+            {"t": 450, "xyz": init_mocap_pose_left[:3], "quat": init_mocap_pose_left[3:], "gripper": 1},  # stay at home
+        ]
+
+        # Right arm trajectory: Pick blue block with complex path planning
+        self.right_trajectory = [
+            {"t": 0, "xyz": init_mocap_pose_right[:3], "quat": init_mocap_pose_right[3:], "gripper": 1},  # sleep (open gripper)
+            {"t": 240, "xyz": blue_xyz + np.array([0, 0, 0.08]), "quat": gripper_pick_quat_right.elements, "gripper": 1},  # approach blue
+            {"t": 265, "xyz": blue_xyz + np.array([0, 0, 0.04]), "quat": gripper_pick_quat_right.elements, "gripper": 1},  # intermediate descent
+            {"t": 280, "xyz": blue_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_right.elements, "gripper": 1},  # go down deeper
+            {"t": 295, "xyz": blue_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_right.elements, "gripper": 1},  # stabilize
+            {"t": 310, "xyz": blue_xyz + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # close gripper
+            {"t": 325, "xyz": blue_xyz + np.array([0, 0, 0.06]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # lift slightly
+            {"t": 340, "xyz": stack_position_2 + np.array([0.1, 0, 0.05]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # intermediate point 1
+            {"t": 355, "xyz": stack_position_2 + np.array([0.05, 0, 0.08]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # intermediate point 2
+            {"t": 365, "xyz": stack_position_2 + np.array([0, 0, 0.08]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # approach from above
+            {"t": 375, "xyz": stack_position_2 + np.array([0, 0, 0.04]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # lower carefully
+            {"t": 380, "xyz": stack_position_2 + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_right.elements, "gripper": 0},  # final position
+            {"t": 385, "xyz": stack_position_2 + np.array([0, 0, 0.02]), "quat": gripper_pick_quat_right.elements, "gripper": 1},  # release
+            {"t": 430, "xyz": init_mocap_pose_right[:3], "quat": init_mocap_pose_right[3:], "gripper": 1},  # return home
+            {"t": 450, "xyz": init_mocap_pose_right[:3], "quat": init_mocap_pose_right[3:], "gripper": 1},  # return home
+        ]
+
+
 
 def test_policy(task_name):
     # example rolling out pick_and_transfer policy
