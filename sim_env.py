@@ -57,7 +57,7 @@ def make_sim_env(task_name, enable_distractors=False):
     elif 'bimanual_aloha_slot_insertion' in task_name:
         xml_path = os.path.join(XML_DIR, 'task_slot_insertion.xml')
         physics = mujoco.Physics.from_xml_path(xml_path)
-        task = BimanualAlohaSlotInsertionTask(random=enable_distractors)
+        task = BimanualAlohaSlotInsertionTask(random=False)
         env = control.Environment(physics, task, time_limit=20, control_timestep=DT,
                                   n_sub_steps=None, flat_observation=False)
     elif 'bimanual_aloha_hook_package' in task_name:
@@ -421,22 +421,6 @@ class BimanualAlohaSlotInsertionTask(BimanualAlohaTask):
         with physics.reset_context():
             physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
             np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
-            
-            # Randomize distractor positions if random is True
-            if self.random:
-                from utils import sample_distractor_poses
-                distractor_poses = sample_distractor_poses()
-                
-                # Set distractor positions
-                distractor_names = ['distractor1', 'distractor2', 'distractor3']
-                for i, distractor_name in enumerate(distractor_names):
-                    try:
-                        joint_id = physics.model.name2id(f'{distractor_name}_joint', 'joint')
-                        pose_start_idx = 16 + (joint_id - 16) * 7  # First 16 is robot qpos, 7 is pose dim
-                        np.copyto(physics.data.qpos[pose_start_idx:pose_start_idx + 7], distractor_poses[i])
-                    except:
-                        print(f"Warning: Could not find {distractor_name}_joint")
-        
         super().initialize_episode(physics)
 
     def get_reward(self, physics):

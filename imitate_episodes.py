@@ -90,14 +90,32 @@ def main(args):
     batch_size_val = args['batch_size']
     num_epochs = args['num_epochs']
 
-    # Auto-create organized directory structure
+    # Collect configuration information for directory classification
+    gaussian_config = {
+        'enabled': args.get('smoothness_weight', 0.1) > 0,
+        'smoothness_weight': args.get('smoothness_weight', 0.1),
+        'filter_window': args.get('filter_window', 5),
+        'filter_sigma': args.get('filter_sigma', 1.0),
+        'smoothness_frequency': args.get('smoothness_frequency', 0.3)
+    }
+    
+    chunk_config = {
+        'use_fixed_chunk': args.get('use_fixed_chunk', False),
+        'chunk_size': args.get('chunk_size', 100)
+    }
+
+    # Auto-create organized directory structure with configuration-based naming
     if 'ckpt_dir' in args and args['ckpt_dir']:
         ckpt_dir = args['ckpt_dir']
         os.makedirs(ckpt_dir, exist_ok=True)
         paths = {'ckpt_dir': ckpt_dir}
+        print(f"Using user-specified checkpoint directory: {ckpt_dir}")
     else:
-        paths = create_organized_structure(task_name, policy_class)
+        paths = create_organized_structure(task_name, policy_class, 
+                                         gaussian_config=gaussian_config, 
+                                         chunk_config=chunk_config)
         ckpt_dir = paths['ckpt_dir']
+        print(f"Auto-created configuration-based checkpoint directory: {ckpt_dir}")
     
     # Print directory structure
     print_structure_info(paths)
@@ -109,7 +127,7 @@ def main(args):
         print(f"DEBUG: Using SIM_TASK_CONFIGS for {task_name}")
         from constants import SIM_TASK_CONFIGS
         task_config = SIM_TASK_CONFIGS[task_name]
-        # 如果任务在仿真任务列表中，确保is_sim为True
+        # If task is in simulation task list, ensure is_sim is True
         is_sim = True
     else:
         print(f"DEBUG: Using TASK_CONFIGS for {task_name}")
@@ -139,6 +157,11 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
+                         # Add Gaussian smoothness loss configuration
+                         'smoothness_weight': args.get('smoothness_weight', 0.1),
+                         'filter_window': args.get('filter_window', 5),
+                         'filter_sigma': args.get('filter_sigma', 1.0),
+                         'smoothness_frequency': args.get('smoothness_frequency', 0.3),
                          }
 
     elif policy_class == 'CNNMLP':
@@ -179,7 +202,19 @@ def main(args):
         print()
         exit()
 
-    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val)
+    # Decide whether to use fixed chunk sampling based on parameters
+    use_fixed_chunk = args.get('use_fixed_chunk', False)
+    chunk_size = args.get('chunk_size') if (policy_class == 'ACT' and use_fixed_chunk) else None
+    
+    # Add debug information
+    print(f"DEBUG: use_fixed_chunk = {use_fixed_chunk}")
+    print(f"DEBUG: chunk_size = {chunk_size}")
+    print(f"DEBUG: chunk_size type = {type(chunk_size)}")
+    if chunk_size is not None:
+        print(f"DEBUG: chunk_size will be converted to int: {int(chunk_size)}")
+        chunk_size = int(chunk_size)  # Ensure it is integer type
+    
+    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -284,7 +319,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
         env_max_reward = 0
     else:
         from sim_env import make_sim_env
-        # 将数据集名称映射到仿真环境任务名称
+        # Map dataset names to simulation environment task names
         if 'converted_single_view_aloha_slot_insertion' in task_name:
             sim_task_name = 'bimanual_aloha_slot_insertion'
         elif 'converted_single_view_aloha_cube_transfer' in task_name:
@@ -298,11 +333,11 @@ def eval_bc(config, ckpt_name, save_episode=True):
         elif 'converted_bimanual_aloha_slot_insertion' in task_name:
             sim_task_name = 'bimanual_aloha_slot_insertion'
         elif 'converted_bimanual_aloha_cube_transfer' in task_name:
-            sim_task_name = 'bimanual_aloha_pour_test_tube'  # 改为pour test tube
+            sim_task_name = 'bimanual_aloha_pour_test_tube'  # Changed to pour test tube
         else:
             sim_task_name = task_name
         
-        env = make_sim_env(sim_task_name, enable_distractors=True)
+        env = make_sim_env(sim_task_name, enable_distractors=False)
         env_max_reward = env.task.max_reward
 
     query_frequency = policy_config['num_queries']
@@ -372,9 +407,9 @@ def eval_bc(config, ckpt_name, save_episode=True):
                 qpos = pre_process(qpos_numpy_14d)
                 qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
                 qpos_history[:, t] = qpos
-                # 将相机名称映射到仿真环境中的名称
+                # Map camera names to names in simulation environment
                 if 'converted_single_view_aloha_slot_insertion' in task_name or task_name.startswith('converted_bimanual_aloha_'):
-                    sim_camera_names = ['overhead_cam']  # 仿真环境中的相机名称
+                    sim_camera_names = ['overhead_cam']  # Camera names in simulation environment
                 else:
                     sim_camera_names = camera_names
                 
@@ -473,13 +508,12 @@ def eval_bc(config, ckpt_name, save_episode=True):
         highest_rewards.append(episode_highest_reward)
         print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
 
-        # Auto-save trajectory comparison for all rollouts
+        # Auto-save trajectory (only execution data, no prediction/error)
         success = episode_highest_reward == env_max_reward
         category_dir = success_dir if success else failed_dir
         rollout_dir = os.path.join(category_dir, f'rollout_{rollout_id:03d}_return_{episode_return:.2f}')
-        plot_trajectory_comparison(qpos_list, target_qpos_list, qvel_list, target_qvel_list,
-                                 qaccel_list, target_qaccel_list, rollout_dir, 
-                                 episode_return, success, DT)
+        plot_execution_trajectory(qpos_list, qvel_list, qaccel_list, rollout_dir, 
+                                episode_return, success, DT)
         
         # Save videos for each rollout
         if save_episode:
@@ -568,9 +602,9 @@ def generate_trajectory_summary(base_dir, success_dir, failed_dir, episode_retur
     with open(summary_path, 'w') as f:
         json.dump(summary_report, f, indent=2)
     
-    print(f"\n📊 Trajectory analysis summary saved to: {summary_path}")
-    print(f"📁 Successful rollouts: {len(success_metrics)} (in {success_dir})")
-    print(f"📁 Failed rollouts: {len(failed_metrics)} (in {failed_dir})")
+    print(f"Trajectory analysis summary saved to: {summary_path}")
+    print(f"Successful rollouts: {len(success_metrics)} (in {success_dir})")
+    print(f" Failed rollouts: {len(failed_metrics)} (in {failed_dir})")
 
 
 def plot_success_vs_failure_analysis(success_metrics, failed_metrics, save_dir):
@@ -633,7 +667,200 @@ def plot_success_vs_failure_analysis(success_metrics, failed_metrics, save_dir):
     plt.savefig(comparison_path, dpi=150, bbox_inches='tight')
     plt.close()
     
-    print(f"📈 Success vs failure analysis saved to: {comparison_path}")
+    print(f" Success vs failure analysis saved to: {comparison_path}")
+
+
+def plot_execution_trajectory(qpos_executed, qvel_executed, qaccel_executed, save_dir, episode_return, success, dt):
+    """
+    Plot execution trajectory only (no prediction/error comparison)
+    Simplified version that only saves actual execution data
+    """
+    from constants import JOINT_NAMES
+    import matplotlib.pyplot as plt
+    import json
+    
+    os.makedirs(save_dir, exist_ok=True)
+    left_arm_dir = os.path.join(save_dir, 'left_arm')
+    right_arm_dir = os.path.join(save_dir, 'right_arm')
+    
+    os.makedirs(left_arm_dir, exist_ok=True)
+    os.makedirs(right_arm_dir, exist_ok=True)
+    
+    qpos_executed = np.array(qpos_executed)
+    qvel_executed = np.array(qvel_executed)
+    qaccel_executed = np.array(qaccel_executed)
+    
+    # Split data for left and right arms (7 states per arm: 6 joints + gripper)
+    STATE_NAMES = JOINT_NAMES + ["gripper"]
+    
+    left_qpos_exec = qpos_executed[:, :7]
+    left_qvel_exec = qvel_executed[:, :7]
+    left_qaccel_exec = qaccel_executed[:, :7]
+    
+    right_qpos_exec = qpos_executed[:, 7:14]
+    right_qvel_exec = qvel_executed[:, 7:14]
+    right_qaccel_exec = qaccel_executed[:, 7:14]
+    
+    time_steps = np.arange(len(qpos_executed)) * dt
+    
+    # Plot for left arm (execution only)
+    plot_arm_execution_trajectory(left_qpos_exec, left_qvel_exec, left_qaccel_exec,
+                                time_steps, 'Left Arm', left_arm_dir, 
+                                STATE_NAMES, episode_return, success)
+    
+    # Plot for right arm (execution only)
+    plot_arm_execution_trajectory(right_qpos_exec, right_qvel_exec, right_qaccel_exec,
+                                time_steps, 'Right Arm', right_arm_dir,
+                                STATE_NAMES, episode_return, success)
+    
+    # Save execution metrics only
+    save_execution_metrics(qpos_executed, qvel_executed, qaccel_executed, 
+                          save_dir, episode_return, success, STATE_NAMES)
+    
+    print(f'Execution trajectory saved to: {save_dir}')
+
+
+def plot_arm_execution_trajectory(qpos_exec, qvel_exec, qaccel_exec, time_steps, arm_name, 
+                                save_dir, joint_names, episode_return, success):
+    """
+    Plot execution trajectory for one arm (no prediction/error comparison)
+    """
+    import matplotlib.pyplot as plt
+    
+    num_joints = qpos_exec.shape[1]
+    success_str = "SUCCESS" if success else "FAILED"
+    
+    # Individual joint execution plots
+    for joint_idx in range(num_joints):
+        joint_name = joint_names[joint_idx]
+        
+        fig, axes = plt.subplots(3, 1, figsize=(15, 12))
+        fig.suptitle(f'{arm_name} - {joint_name} | Return: {episode_return:.2f} | {success_str}', 
+                    fontsize=16, fontweight='bold')
+        
+        # Position execution
+        axes[0].plot(time_steps, qpos_exec[:, joint_idx], 'b-', linewidth=2, label='Executed', alpha=0.8)
+        axes[0].set_ylabel('Position (rad)', fontsize=12)
+        axes[0].set_title('Joint Position')
+        axes[0].grid(True, alpha=0.3)
+        axes[0].legend()
+        
+        # Velocity execution
+        axes[1].plot(time_steps, qvel_exec[:, joint_idx], 'g-', linewidth=2, label='Executed', alpha=0.8)
+        axes[1].set_ylabel('Velocity (rad/s)', fontsize=12)
+        axes[1].set_title('Joint Velocity')
+        axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
+        
+        # Acceleration execution
+        axes[2].plot(time_steps, qaccel_exec[:, joint_idx], 'r-', linewidth=2, label='Executed', alpha=0.8)
+        axes[2].set_ylabel('Acceleration (rad/s²)', fontsize=12)
+        axes[2].set_title('Joint Acceleration')
+        axes[2].grid(True, alpha=0.3)
+        axes[2].legend()
+        axes[2].set_xlabel('Time (s)', fontsize=12)
+        
+        plt.tight_layout()
+        plot_path = os.path.join(save_dir, f'{joint_name}_execution.png')
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    # Create summary plot for all joints (execution only)
+    fig, axes = plt.subplots(3, 1, figsize=(20, 15))
+    fig.suptitle(f'{arm_name} - All Joints Execution | Return: {episode_return:.2f} | {success_str}', 
+                fontsize=18, fontweight='bold')
+    
+    colors = plt.cm.Set3(np.linspace(0, 1, num_joints))
+    
+    for joint_idx in range(num_joints):
+        joint_name = joint_names[joint_idx]
+        color = colors[joint_idx]
+        
+        # Position
+        axes[0].plot(time_steps, qpos_exec[:, joint_idx], '-', color=color, 
+                    linewidth=2, label=f'{joint_name}', alpha=0.8)
+        
+        # Velocity 
+        axes[1].plot(time_steps, qvel_exec[:, joint_idx], '-', color=color, 
+                    linewidth=2, label=f'{joint_name}', alpha=0.8)
+        
+        # Acceleration
+        axes[2].plot(time_steps, qaccel_exec[:, joint_idx], '-', color=color, 
+                    linewidth=2, label=f'{joint_name}', alpha=0.8)
+    
+    axes[0].set_ylabel('Position (rad)', fontsize=14)
+    axes[0].set_title('Joint Positions', fontsize=16)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    axes[1].set_ylabel('Velocity (rad/s)', fontsize=14)
+    axes[1].set_title('Joint Velocities', fontsize=16)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    axes[2].set_ylabel('Acceleration (rad/s²)', fontsize=14)
+    axes[2].set_title('Joint Accelerations', fontsize=16)
+    axes[2].grid(True, alpha=0.3)
+    axes[2].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    axes[2].set_xlabel('Time (s)', fontsize=14)
+    
+    plt.tight_layout()
+    summary_path = os.path.join(save_dir, 'all_joints_execution_summary.png')
+    plt.savefig(summary_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+def save_execution_metrics(qpos_executed, qvel_executed, qaccel_executed, 
+                          save_dir, episode_return, success, joint_names):
+    """
+    Save execution metrics without comparison to prediction
+    """
+    import json
+    
+    # Calculate basic statistics for execution data
+    pos_mean = np.mean(qpos_executed, axis=0)
+    pos_std = np.std(qpos_executed, axis=0)
+    pos_max = np.max(qpos_executed, axis=0)
+    pos_min = np.min(qpos_executed, axis=0)
+    
+    vel_mean = np.mean(qvel_executed, axis=0)
+    vel_std = np.std(qvel_executed, axis=0)
+    vel_max = np.max(qvel_executed, axis=0)
+    vel_min = np.min(qvel_executed, axis=0)
+    
+    accel_mean = np.mean(qaccel_executed, axis=0)
+    accel_std = np.std(qaccel_executed, axis=0)
+    accel_max = np.max(qaccel_executed, axis=0)
+    accel_min = np.min(qaccel_executed, axis=0)
+    
+    # Save metrics to JSON
+    metrics = {
+        'episode_return': float(episode_return),
+        'success': bool(success),
+        'position_stats': {
+            'mean': pos_mean.tolist(),
+            'std': pos_std.tolist(),
+            'max': pos_max.tolist(),
+            'min': pos_min.tolist()
+        },
+        'velocity_stats': {
+            'mean': vel_mean.tolist(),
+            'std': vel_std.tolist(),
+            'max': vel_max.tolist(),
+            'min': vel_min.tolist()
+        },
+        'acceleration_stats': {
+            'mean': accel_mean.tolist(),
+            'std': accel_std.tolist(),
+            'max': accel_max.tolist(),
+            'min': accel_min.tolist()
+        },
+        'joint_names': joint_names
+    }
+    
+    metrics_path = os.path.join(save_dir, 'execution_metrics.json')
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics, f, indent=2)
 
 
 def plot_trajectory_comparison(qpos_executed, qpos_predicted, qvel_executed, qvel_predicted, 
@@ -1047,8 +1274,21 @@ if __name__ == '__main__':
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', default=3200, required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     
-
+    # Fixed chunk sampling strategy
+    parser.add_argument('--use_fixed_chunk', action='store_true', 
+                        help='Use fixed chunk sampling strategy (actdraft style) instead of variable length sampling', 
+                        default=False)
     
+    # Gaussian smoothness loss parameters
+    parser.add_argument('--smoothness_weight', action='store', type=float, help='Weight for gaussian smoothness loss', 
+                        default=0.1, required=False)
+    parser.add_argument('--filter_window', action='store', type=int, help='Window size for gaussian filter', 
+                        default=5, required=False)
+    parser.add_argument('--filter_sigma', action='store', type=float, help='Sigma parameter for gaussian filter', 
+                        default=1.0, required=False)
+    parser.add_argument('--smoothness_frequency', action='store', type=float, help='Frequency for selective smoothness loss (0.0-1.0)', 
+                        default=0.3, required=False)
+
     # backbone selection
     parser.add_argument('--backbone', action='store', type=str, help='backbone model (resnet18/34/50/101 or dinov2_vits14/vitb14/vitl14/vitg14)', 
                         default='resnet18', required=False)

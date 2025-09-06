@@ -9,12 +9,13 @@ import IPython
 e = IPython.embed
 
 class EpisodicDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats):
+    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, chunk_size=None):
         super(EpisodicDataset).__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
         self.camera_names = camera_names
         self.norm_stats = norm_stats
+        self.chunk_size = chunk_size  # New: fixed chunk size
         self.is_sim = None
         self.__getitem__(0) # initialize self.is_sim
 
@@ -30,10 +31,13 @@ class EpisodicDataset(torch.utils.data.Dataset):
             is_sim = root.attrs['sim']
             original_action_shape = root['/action'].shape
             episode_len = original_action_shape[0]
+            action_dim = original_action_shape[1]
+            
             if sample_full_episode:
                 start_ts = 0
             else:
                 start_ts = np.random.choice(episode_len)
+            
             # get observation at start_ts only
             qpos = root['/observations/qpos'][start_ts]
             qvel = root['/observations/qvel'][start_ts]
@@ -52,19 +56,49 @@ class EpisodicDataset(torch.utils.data.Dataset):
             image_dict = dict()
             for cam_name in self.camera_names:
                 image_dict[cam_name] = root[f'/observations/images/{cam_name}'][start_ts]
-            # get all actions after and including start_ts
-            if is_sim:
-                action = root['/action'][start_ts:]
-                action_len = episode_len - start_ts
+            
+            # 🔑 New fixed chunk sampling logic
+            if self.chunk_size is not None:
+                # Use fixed chunk size (actdraft approach)
+                chunk_size = self.chunk_size
+                
+                # Calculate chunk end position
+                end_ts = min(start_ts + chunk_size, episode_len)
+                actual_len = end_ts - start_ts
+                
+                # Extract fixed-length action chunk
+                if is_sim:
+                    action_chunk = root['/action'][start_ts:end_ts]
+                else:
+                    # Hack handling for real robot data
+                    adj_start_ts = max(0, start_ts - 1)
+                    adj_end_ts = min(adj_start_ts + chunk_size, episode_len)
+                    action_chunk = root['/action'][adj_start_ts:adj_end_ts]
+                    actual_len = adj_end_ts - adj_start_ts
+                
+                # Create fixed-size action array and fill
+                padded_action = np.zeros((chunk_size, action_dim), dtype=np.float32)
+                padded_action[:actual_len] = action_chunk
+                
+                # Create corresponding padding mask
+                is_pad = np.zeros(chunk_size)
+                is_pad[actual_len:] = 1
+                
             else:
-                action = root['/action'][max(0, start_ts - 1):] # hack, to make timesteps more aligned
-                action_len = episode_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
+                # Original variable-length logic (backward compatibility)
+                if is_sim:
+                    action = root['/action'][start_ts:]
+                    action_len = episode_len - start_ts
+                else:
+                    action = root['/action'][max(0, start_ts - 1):] # hack, to make timesteps more aligned
+                    action_len = episode_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
+                
+                padded_action = np.zeros(original_action_shape, dtype=np.float32)
+                padded_action[:action_len] = action
+                is_pad = np.zeros(episode_len)
+                is_pad[action_len:] = 1
 
         self.is_sim = is_sim
-        padded_action = np.zeros(original_action_shape, dtype=np.float32)
-        padded_action[:action_len] = action
-        is_pad = np.zeros(episode_len)
-        is_pad[action_len:] = 1
 
         # new axis for different cameras
         all_cam_images = []
@@ -135,10 +169,20 @@ def get_norm_stats(dataset_dir, num_episodes):
     return stats
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size=None):
     print(f'\nData from: {dataset_dir}\n')
+    # Print sampling strategy information
+    if chunk_size is not None:
+        print(f'Using fixed chunk sampling strategy: chunk_size={chunk_size}')
+        print(f'   - Fixed length per sample: {chunk_size} steps')
+        print(f'   - Reduce padding, improve training-inference consistency')
+    else:
+        print(f'Using variable-length sampling strategy (original method)')
+        print(f'   - Each sample from random start point to episode end')
+    print()
+    
     # obtain train test split
-    train_ratio = 0.8
+    train_ratio = 0.9
     shuffled_indices = np.random.permutation(num_episodes)
     train_indices = shuffled_indices[:int(train_ratio * num_episodes)]
     val_indices = shuffled_indices[int(train_ratio * num_episodes):]
@@ -146,9 +190,9 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     # obtain normalization stats for qpos and action
     norm_stats = get_norm_stats(dataset_dir, num_episodes)
 
-    # construct dataset and dataloader
-    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats)
-    val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats)
+    # construct dataset and dataloader with chunk_size
+    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, chunk_size)
+    val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, chunk_size)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
 

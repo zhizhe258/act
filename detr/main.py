@@ -66,6 +66,20 @@ def get_args_parser():
     parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    
+    # Add Gaussian smoothness loss related parameters
+    parser.add_argument('--smoothness_weight', default=0.1, type=float, 
+                        help='Weight for gaussian smoothness loss')
+    parser.add_argument('--filter_window', default=5, type=int, 
+                        help='Window size for gaussian filter')
+    parser.add_argument('--filter_sigma', default=1.0, type=float, 
+                        help='Sigma parameter for gaussian filter')
+    parser.add_argument('--smoothness_frequency', default=0.3, type=float, 
+                        help='Frequency for selective smoothness loss (0.0-1.0)')
+    
+    # Add fixed chunk sampling related parameters
+    parser.add_argument('--use_fixed_chunk', action='store_true',
+                        help='Use fixed chunk sampling strategy (actdraft style) instead of variable length sampling')
 
     return parser
 
@@ -77,7 +91,7 @@ def build_ACT_model_and_optimizer(args_override):
     for k, v in args_override.items():
         setattr(args, k, v)
     
-    # 确保backbone有默认值
+    # Ensure backbone has default value
     if args.backbone is None:
         args.backbone = 'resnet18'
 
