@@ -89,11 +89,10 @@ You can also add ``--onscreen_render`` to see real-time rendering during evaluat
 Here when doing peg insertion, the ``--pose_mode`` could be set to similar and edge, random is the default mode
 
 
-## Visualization
-
-### To visualize the trajectory:
-
-python3 trajectory_analysis_with_plots.py
+To see trajectory:
+    
+    
+    python3 trajectory_analysis_with_plots.py
 
 
 
