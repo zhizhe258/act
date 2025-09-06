@@ -43,7 +43,6 @@ To set up a new terminal, run:
     conda activate aloha
     cd <path to act repo>
 
-### Simulated experiments
 
 ### Simulated Experiments
 
@@ -90,14 +89,11 @@ You can also add ``--onscreen_render`` to see real-time rendering during evaluat
 Here when doing peg insertion, the ``--pose_mode`` could be set to similar and edge, random is the default mode
 
 
+## Visualization
 
-TO Visualize the trjectory:
+### To visualize the trajectory:
 
-  python3 trajectory_analysis_with_plots.py
-
-
-To Visualise the Z:
-python3 z_analysis.py 
+python3 trajectory_analysis_with_plots.py
 
 
 
