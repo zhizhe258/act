@@ -46,10 +46,15 @@ To set up a new terminal, run:
 
 ### Simulated experiments
 
-sim_transfer_cube_scripted
-sim_slot_insertion_scripted
-sim_cupboard_scripted 
-sim_stack_scripted
+### Simulated Experiments
+
+| Task Name                  | Description                |
+|-----------------------------|----------------------------|
+| `sim_transfer_cube_scripted` | Transfer cube with scripted policy |
+| `sim_slot_insertion_scripted` | Peg insertion task        |
+| `sim_cupboard_scripted`      | Cupboard opening/closing   |
+| `sim_stack_scripted`         | Stacking cubes             |
+
 
 We use ``sim_transfer_cube_scripted`` task in the examples below. Another option is ``sim_insertion_scripted``.
 To generated 50 episodes of scripted data, run:
