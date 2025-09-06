@@ -96,4 +96,10 @@ To see trajectory:
 
 
 
+To visualize the Z:
+
+    python3 z_analysis.py
+
+
+
 
