@@ -13,7 +13,7 @@
 - ``utils.py`` Utils such as data loading and helper functions
 - ``visualize_episodes.py`` Save videos from a .hdf5 dataset
 
-
+Here need to rename the mian folder as actnew.
 ### Installation
     conda create -n aloha python=3.8.10
     conda activate aloha
