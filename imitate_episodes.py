@@ -90,17 +90,8 @@ def main(args):
     batch_size_val = args['batch_size']
     num_epochs = args['num_epochs']
 
-    # Collect configuration information for directory classification
-    gaussian_config = {
-        'enabled': args.get('smoothness_weight', 0.1) > 0,
-        'smoothness_weight': args.get('smoothness_weight', 0.1),
-        'filter_window': args.get('filter_window', 5),
-        'filter_sigma': args.get('filter_sigma', 1.0),
-        'smoothness_frequency': args.get('smoothness_frequency', 0.3)
-    }
     
     chunk_config = {
-        'use_fixed_chunk': args.get('use_fixed_chunk', False),
         'chunk_size': args.get('chunk_size', 100)
     }
 
@@ -112,8 +103,8 @@ def main(args):
         print(f"Using user-specified checkpoint directory: {ckpt_dir}")
     else:
         paths = create_organized_structure(task_name, policy_class, 
-                                         gaussian_config=gaussian_config, 
-                                         chunk_config=chunk_config)
+                                         chunk_config=chunk_config,
+                                         no_cvae=args.get('no_cvae', False))
         ckpt_dir = paths['ckpt_dir']
         print(f"Auto-created configuration-based checkpoint directory: {ckpt_dir}")
     
@@ -157,11 +148,7 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
-                         # Add Gaussian smoothness loss configuration
-                         'smoothness_weight': args.get('smoothness_weight', 0.1),
-                         'filter_window': args.get('filter_window', 5),
-                         'filter_sigma': args.get('filter_sigma', 1.0),
-                         'smoothness_frequency': args.get('smoothness_frequency', 0.3),
+                         'use_cvae': not args.get('no_cvae', False),
                          }
 
     elif policy_class == 'CNNMLP':
@@ -202,16 +189,9 @@ def main(args):
         print()
         exit()
 
-    # Decide whether to use fixed chunk sampling based on parameters
-    use_fixed_chunk = args.get('use_fixed_chunk', False)
-    chunk_size = args.get('chunk_size') if (policy_class == 'ACT' and use_fixed_chunk) else None
-    
-    # Add debug information
-    print(f"DEBUG: use_fixed_chunk = {use_fixed_chunk}")
-    print(f"DEBUG: chunk_size = {chunk_size}")
-    print(f"DEBUG: chunk_size type = {type(chunk_size)}")
+    # Get chunk_size from arguments (for ACT policy)
+    chunk_size = args.get('chunk_size') if policy_class == 'ACT' else None
     if chunk_size is not None:
-        print(f"DEBUG: chunk_size will be converted to int: {int(chunk_size)}")
         chunk_size = int(chunk_size)  # Ensure it is integer type
     
     train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size)
@@ -1273,21 +1253,7 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', default=512, required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', default=3200, required=False)
     parser.add_argument('--temporal_agg', action='store_true')
-    
-    # Fixed chunk sampling strategy
-    parser.add_argument('--use_fixed_chunk', action='store_true', 
-                        help='Use fixed chunk sampling strategy (actdraft style) instead of variable length sampling', 
-                        default=False)
-    
-    # Gaussian smoothness loss parameters
-    parser.add_argument('--smoothness_weight', action='store', type=float, help='Weight for gaussian smoothness loss', 
-                        default=0.1, required=False)
-    parser.add_argument('--filter_window', action='store', type=int, help='Window size for gaussian filter', 
-                        default=5, required=False)
-    parser.add_argument('--filter_sigma', action='store', type=float, help='Sigma parameter for gaussian filter', 
-                        default=1.0, required=False)
-    parser.add_argument('--smoothness_frequency', action='store', type=float, help='Frequency for selective smoothness loss (0.0-1.0)', 
-                        default=0.3, required=False)
+    parser.add_argument('--no_cvae', action='store_true', help='Disable CVAE encoder, use pure BC mode')
 
     # backbone selection
     parser.add_argument('--backbone', action='store', type=str, help='backbone model (resnet18/34/50/101 or dinov2_vits14/vitb14/vitl14/vitg14)', 

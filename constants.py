@@ -1,7 +1,7 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = '/home/zzt/actnew/data'
+DATA_DIR = '/home/zzt/act1/actnew/data'
 
 # GYM-ALOHA task mapping (standardized naming)
 GYM_ALOHA_TASK_MAPPING = {
@@ -29,7 +29,7 @@ SIM_TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_hook_package',
         'num_episodes': 50,
         'episode_len': 301,
-        'camera_names': ['top'],  # Use top camera name to match original format
+        'camera_names': ['overhead_cam'],  # Match sim_env.py camera name
         'gym_aloha_env': 'gym_av_aloha/hook-package-v1',
         'converted_from': 'gv_sim_hook_package_2arms',
         'single_view': True
@@ -39,7 +39,7 @@ SIM_TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_thread_needle',
         'num_episodes': 50,
         'episode_len': 301,
-        'camera_names': ['top'],  # Use top camera name to match original format
+        'camera_names': ['overhead_cam'],  # Match sim_env.py camera name
         'gym_aloha_env': 'gym_av_aloha/thread-needle-v1',
         'converted_from': 'gv_sim_sew_needle_2arms',
         'single_view': True
@@ -49,7 +49,7 @@ SIM_TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_peg_insertion',
         'num_episodes': 50,
         'episode_len': 401,  # This task has data length of 401
-        'camera_names': ['top'],  # Use top camera name to match original format
+        'camera_names': ['overhead_cam'],  # Match sim_env.py camera name
         'gym_aloha_env': 'gym_av_aloha/peg-insertion-v1',
         'converted_from': 'gv_sim_insert_peg_2arms',
         'single_view': True
@@ -59,7 +59,7 @@ SIM_TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_slot_insertion',
         'num_episodes': 50,
         'episode_len': 301,
-        'camera_names': ['overhead'],  # Use top camera name to match original format
+        'camera_names': ['overhead_cam'],  # Match sim_env.py camera name
         'gym_aloha_env': 'gym_av_aloha/slot-insertion-v1',
         'converted_from': 'gv_sim_slot_insertion_2arms',
         'single_view': True
@@ -69,7 +69,7 @@ SIM_TASK_CONFIGS = {
         'dataset_dir': DATA_DIR + '/converted_bimanual_aloha_cube_transfer',
         'num_episodes': 50,
         'episode_len': 351,  # This task has data length of 351
-        'camera_names': ['top'],  # Use top camera name to match original format
+        'camera_names': ['overhead_cam'],  # Match sim_env.py camera name
         'gym_aloha_env': 'gym_av_aloha/pour-test-tube-v1',  # Changed to pour test tube
         'converted_from': 'gv_sim_tube_transfer_2arms',
         'single_view': True
@@ -151,13 +151,3 @@ PUPPET_POS2JOINT = lambda x: PUPPET_GRIPPER_POSITION_NORMALIZE_FN(x) * (PUPPET_G
 PUPPET_JOINT2POS = lambda x: PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN((x - PUPPET_GRIPPER_JOINT_CLOSE) / (PUPPET_GRIPPER_JOINT_OPEN - PUPPET_GRIPPER_JOINT_CLOSE))
 
 MASTER_GRIPPER_JOINT_MID = (MASTER_GRIPPER_JOINT_OPEN + MASTER_GRIPPER_JOINT_CLOSE)/2
-
-# Gaussian smoothness loss configuration
-GAUSSIAN_SMOOTHNESS_CONFIG = {
-    'enabled': True,                    # Whether to enable smoothness loss
-    'weight': 0.1,                      # Smoothness loss weight
-    'filter_type': 'gaussian',          # Filter type: 'gaussian'
-    'filter_window': 5,                 # Filter window size
-    'filter_sigma': 1.0,                # Standard deviation of Gaussian distribution
-    'frequency': 0.3,                   # Selective application frequency (30% of samples)
-}

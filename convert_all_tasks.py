@@ -20,7 +20,7 @@ import glob
 
 def extract_all_frames_batch(video_path, output_dir, episode_len):
     """
-    Use ffmpeg to batch extract all frames
+    Use ffmpeg to batch extract all frames with high quality
     
     Args:
         video_path: video file path
@@ -31,14 +31,14 @@ def extract_all_frames_batch(video_path, output_dir, episode_len):
         list of extracted frames
     """
     try:
-        # Use ffmpeg to extract all frames at once
+        # Use ffmpeg to extract all frames at once with PNG (lossless)
         cmd = [
             'ffmpeg', '-i', video_path,
             '-vf', f'select=between(n\\,0\\,{episode_len-1})',
             '-vsync', '0',  # Disable video sync
             '-frame_pts', '1',  # Add timestamp
             '-y',  # Overwrite output files
-            os.path.join(output_dir, 'frame_%06d.jpg')
+            os.path.join(output_dir, 'frame_%06d.png')  # Use PNG for lossless quality
         ]
         
         # Execute command
@@ -48,7 +48,7 @@ def extract_all_frames_batch(video_path, output_dir, episode_len):
             # Read all extracted frames
             frames = []
             for i in range(episode_len):
-                frame_path = os.path.join(output_dir, f'frame_{i:06d}.jpg')
+                frame_path = os.path.join(output_dir, f'frame_{i:06d}.png')
                 if os.path.exists(frame_path):
                     frame = cv2.imread(frame_path)
                     if frame is not None:
@@ -121,22 +121,23 @@ def convert_single_task(parquet_dir, output_dir, num_episodes=None):
             qvel_list = []
             
             for _, row in episode_data.iterrows():
-                # Extract state data (14D)
-                state = np.frombuffer(row['observation.state'], dtype=np.float32)
+                # Extract state data (14D) - use float64 to match record_sim_episodes.py format
+                state = np.frombuffer(row['observation.state'], dtype=np.float32).astype(np.float64)
                 qpos_list.append(state)
                 
                 # For qvel, we temporarily use zero padding since parquet has no velocity data
-                qvel = np.zeros(14, dtype=np.float32)
+                # Use float64 to match record_sim_episodes.py format
+                qvel = np.zeros(14, dtype=np.float64)
                 qvel_list.append(qvel)
             
             # Convert to numpy array
             qpos = np.array(qpos_list)  # (episode_len, 14)
             qvel = np.array(qvel_list)  # (episode_len, 14)
             
-            # Extract action data
+            # Extract action data - use float64 to match record_sim_episodes.py format
             action_list = []
             for _, row in episode_data.iterrows():
-                action = np.frombuffer(row['action'], dtype=np.float32)
+                action = np.frombuffer(row['action'], dtype=np.float32).astype(np.float64)
                 action_list.append(action)
             
             action = np.array(action_list)  # (episode_len, 14)
@@ -146,9 +147,9 @@ def convert_single_task(parquet_dir, output_dir, num_episodes=None):
             f.create_dataset('/observations/qvel', data=qvel)
             f.create_dataset('/action', data=action)
             
-            # Extract real image data - only keep overhead_cam and rename to top
+            # Extract real image data - only keep overhead_cam (match sim_env.py)
             episode_len = len(qpos)
-            cam_name = 'overhead_cam'  # Only use overhead camera
+            cam_name = 'overhead_cam'  # Only use overhead camera from source
             
             # Get video path for this camera
             first_row = episode_data.iloc[0]
@@ -176,23 +177,23 @@ def convert_single_task(parquet_dir, output_dir, num_episodes=None):
                                 resized_frames.append(resized)
                             
                             frames_array = np.array(resized_frames)  # (episode_len, 480, 640, 3)
-                            # Rename to top to match original format
-                            f.create_dataset('/observations/images/top', data=frames_array)
+                            # Use 'overhead_cam' to match sim_env.py camera_names
+                            f.create_dataset('/observations/images/overhead_cam', data=frames_array)
                         else:
                             # If extraction fails, create dummy data
                             fake_images = np.random.randint(0, 256, (episode_len, 480, 640, 3), dtype=np.uint8) * 0.1
-                            f.create_dataset('/observations/images/top', data=fake_images)
+                            f.create_dataset('/observations/images/overhead_cam', data=fake_images)
                     finally:
                         # Clean up temporary directory
                         shutil.rmtree(temp_dir, ignore_errors=True)
                 else:
                     # If video file does not exist, create dummy data
                     fake_images = np.random.randint(0, 256, (episode_len, 480, 640, 3), dtype=np.uint8) * 0.1
-                    f.create_dataset('/observations/images/top', data=fake_images)
+                    f.create_dataset('/observations/images/overhead_cam', data=fake_images)
             else:
                 # If image info format is incorrect, create dummy data
                 fake_images = np.random.randint(0, 256, (episode_len, 480, 640, 3), dtype=np.uint8) * 0.1
-                f.create_dataset('/observations/images/top', data=fake_images)
+                f.create_dataset('/observations/images/overhead_cam', data=fake_images)
     
     print(f"Task {os.path.basename(parquet_dir)} conversion completed!")
     print(f"   Output directory: {output_dir}")
@@ -260,7 +261,7 @@ def convert_all_tasks(base_data_dir, num_episodes=50):
 def main():
     parser = argparse.ArgumentParser(description='Batch convert all tasks from parquet format to HDF5 format')
     parser.add_argument('--base_data_dir', type=str, 
-                       default='/home/zzt/actnew/data',
+                       default='/home/zzt/act/actnew/data',
                        help='Base data directory')
     parser.add_argument('--num_episodes', type=int, default=50,
                        help='Number of episodes to convert per task')

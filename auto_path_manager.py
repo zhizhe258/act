@@ -28,7 +28,7 @@ def get_auto_dataset_dir(task_name, base_dir="./data", timestamp=False):
 
 
 def get_auto_ckpt_dir(task_name, policy_class, base_dir="./checkpoints", timestamp=False, 
-                      gaussian_config=None, chunk_config=None):
+                      chunk_config=None, no_cvae=False):
     """
     Auto-generate checkpoint directory based on task name, policy, and configurations
     Args:
@@ -36,30 +36,22 @@ def get_auto_ckpt_dir(task_name, policy_class, base_dir="./checkpoints", timesta
         policy_class: Policy class name (e.g., 'ACT', 'CNNMLP')
         base_dir: Base directory for all checkpoints
         timestamp: Whether to add timestamp suffix
-        gaussian_config: Dict with gaussian smoothness parameters (optional)
         chunk_config: Dict with chunk sampling parameters (optional)
+        no_cvae: Whether using pure BC mode without CVAE (adds _nocvae suffix)
     Returns:
         ckpt_dir: Full path to the checkpoint directory
     """
     # Build base directory name
     dir_name_parts = [task_name, policy_class]
     
-    # Detect Gaussian smoothing configuration
-    if gaussian_config and gaussian_config.get('enabled', False):
-        weight = gaussian_config.get('smoothness_weight', 0.1)
-        if weight > 0:
-            dir_name_parts.append(f"gaussian_{weight}")
-        else:
-            dir_name_parts.append("nogaussian")
-    else:
-        dir_name_parts.append("nogaussian")
+    # Add nocvae suffix for pure BC mode
+    if no_cvae and policy_class == 'ACT':
+        dir_name_parts.append("nocvae")
     
-    # Detect chunk sampling configuration
-    if chunk_config and chunk_config.get('use_fixed_chunk', False):
+    # Add chunk size to directory name
+    if chunk_config and chunk_config.get('chunk_size'):
         chunk_size = chunk_config.get('chunk_size', 100)
-        dir_name_parts.append(f"fixedchunk_{chunk_size}")
-    else:
-        dir_name_parts.append("variablechunk")
+        dir_name_parts.append(f"chunk_{chunk_size}")
     
     # Add timestamp (if needed)
     if timestamp:
@@ -89,7 +81,7 @@ def get_auto_eval_dir(ckpt_dir, eval_type="evaluation"):
 
 
 def create_organized_structure(task_name, policy_class=None, base_data_dir="./data", base_ckpt_dir="./checkpoints",
-                              gaussian_config=None, chunk_config=None):
+                              chunk_config=None, no_cvae=False):
     """
     Create complete organized directory structure for a task
     Args:
@@ -97,8 +89,8 @@ def create_organized_structure(task_name, policy_class=None, base_data_dir="./da
         policy_class: Policy class name (optional, for training/eval)
         base_data_dir: Base directory for datasets
         base_ckpt_dir: Base directory for checkpoints
-        gaussian_config: Dict with gaussian smoothness parameters (optional)
         chunk_config: Dict with chunk sampling parameters (optional)
+        no_cvae: Whether using pure BC mode without CVAE
     Returns:
         dict: Dictionary containing all created paths
     """
@@ -110,7 +102,7 @@ def create_organized_structure(task_name, policy_class=None, base_data_dir="./da
     # Checkpoint directory (if policy specified)
     if policy_class:
         paths['ckpt_dir'] = get_auto_ckpt_dir(task_name, policy_class, base_ckpt_dir, 
-                                            gaussian_config=gaussian_config, chunk_config=chunk_config)
+                                            chunk_config=chunk_config, no_cvae=no_cvae)
         paths['eval_dir'] = get_auto_eval_dir(paths['ckpt_dir'])
         paths['trajectory_dir'] = get_auto_eval_dir(paths['ckpt_dir'], 'trajectory_comparisons')
     

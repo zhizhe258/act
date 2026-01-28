@@ -365,6 +365,23 @@ class BimanualAlohaPegInsertionTask(BimanualAlohaTask):
         with physics.reset_context():
             physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
             np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+            
+            # Randomize peg position (free joint: x, y, z, qw, qx, qy, qz)
+            # Reference from av-aloha: x=[0.1, 0.2], y=[-0.1, 0.1], z=0.01
+            peg_x = np.random.uniform(0.1, 0.2)
+            peg_y = np.random.uniform(-0.1, 0.1)
+            peg_z = 0.01
+            peg_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['peg_joint'] = np.concatenate([[peg_x, peg_y, peg_z], peg_quat])
+            
+            # Randomize hole position (free joint: x, y, z, qw, qx, qy, qz)
+            # Reference from av-aloha: x=[-0.1, -0.2], y=[-0.1, 0.1], z=0.021
+            hole_x = np.random.uniform(-0.2, -0.1)
+            hole_y = np.random.uniform(-0.1, 0.1)
+            hole_z = 0.021
+            hole_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['hole_joint'] = np.concatenate([[hole_x, hole_y, hole_z], hole_quat])
+            
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
@@ -421,6 +438,21 @@ class BimanualAlohaSlotInsertionTask(BimanualAlohaTask):
         with physics.reset_context():
             physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
             np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+            
+            # Randomize slot position (free joint: x, y, z, qw, qx, qy, qz)
+            slot_x = np.random.uniform(-0.05, 0.05)
+            slot_y = np.random.uniform(0.1, 0.15)
+            slot_z = 0.0
+            slot_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['slot_joint'] = np.concatenate([[slot_x, slot_y, slot_z], slot_quat])
+            
+            # Randomize stick position (free joint: x, y, z, qw, qx, qy, qz)
+            stick_x = np.random.uniform(-0.08, 0.08)
+            stick_y = np.random.uniform(-0.1, 0.0)
+            stick_z = 0.0
+            stick_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['stick_joint'] = np.concatenate([[stick_x, stick_y, stick_z], stick_quat])
+            
         super().initialize_episode(physics)
 
     def get_reward(self, physics):
@@ -474,6 +506,23 @@ class BimanualAlohaHookPackageTask(BimanualAlohaTask):
         with physics.reset_context():
             physics.named.data.qpos[:16] = BIMANUAL_ALOHA_START_ARM_POSE
             np.copyto(physics.data.ctrl, BIMANUAL_ALOHA_START_ARM_CONTROL)
+            
+            # Randomize hook position (free joint: x, y, z, qw, qx, qy, qz)
+            # Reference from av-aloha: x=[-0.1, 0.1], y=0.3, z=[0.2, 0.3]
+            hook_x = np.random.uniform(-0.1, 0.1)
+            hook_y = 0.3
+            hook_z = np.random.uniform(0.2, 0.3)
+            hook_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['hook_joint'] = np.concatenate([[hook_x, hook_y, hook_z], hook_quat])
+            
+            # Randomize package position (free joint: x, y, z, qw, qx, qy, qz)
+            # Reference from av-aloha: x=[-0.1, 0.1], y=[0, 0.15], z=0.0
+            package_x = np.random.uniform(-0.1, 0.1)
+            package_y = np.random.uniform(0.0, 0.15)
+            package_z = 0.0
+            package_quat = np.array([1, 0, 0, 0])
+            physics.named.data.qpos['package_joint'] = np.concatenate([[package_x, package_y, package_z], package_quat])
+            
         super().initialize_episode(physics)
 
     def get_reward(self, physics):

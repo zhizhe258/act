@@ -3,6 +3,8 @@ import numpy as np
 import cv2
 import h5py
 import argparse
+import subprocess
+import tempfile
 
 import matplotlib.pyplot as plt
 from constants import DT
@@ -30,13 +32,89 @@ def load_hdf5(dataset_dir, dataset_name):
 
     return qpos, qvel, action, image_dict
 
+def save_videos_ffmpeg(video, dt, video_path=None, crf=18):
+    """
+    Save video using ffmpeg for high quality output
+    
+    Args:
+        video: dict or list of images
+        dt: time delta between frames
+        video_path: output video path
+        crf: Constant Rate Factor (0-51, lower is better quality, 18 is visually lossless)
+    """
+    if isinstance(video, list):
+        cam_names = list(video[0].keys())
+        h, w, _ = video[0][cam_names[0]].shape
+        w = w * len(cam_names)
+        fps = int(1/dt)
+        
+        # Prepare frames
+        all_frames = []
+        for ts, image_dict in enumerate(video):
+            images = []
+            for cam_name in cam_names:
+                image = image_dict[cam_name]
+                images.append(image)
+            images = np.concatenate(images, axis=1)
+            all_frames.append(images)
+        all_frames = np.array(all_frames)
+        
+    elif isinstance(video, dict):
+        cam_names = list(video.keys())
+        all_cam_videos = []
+        for cam_name in cam_names:
+            all_cam_videos.append(video[cam_name])
+        all_cam_videos = np.concatenate(all_cam_videos, axis=2)
+        all_frames = all_cam_videos
+        fps = int(1 / dt)
+    
+    n_frames, h, w, c = all_frames.shape
+    
+    # Use ffmpeg to encode with high quality
+    cmd = [
+        'ffmpeg', '-y',
+        '-f', 'rawvideo',
+        '-vcodec', 'rawvideo',
+        '-s', f'{w}x{h}',
+        '-pix_fmt', 'rgb24',
+        '-r', str(fps),
+        '-i', '-',
+        '-an',
+        '-vcodec', 'libx264',
+        '-crf', str(crf),
+        '-preset', 'slow',  # slower encoding for better quality
+        '-pix_fmt', 'yuv420p',
+        video_path
+    ]
+    
+    try:
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        for frame in all_frames:
+            process.stdin.write(frame.tobytes())
+        process.stdin.close()
+        process.wait()
+        
+        if process.returncode == 0:
+            print(f'Saved high-quality video to: {video_path}')
+        else:
+            stderr = process.stderr.read().decode()
+            print(f'Warning: ffmpeg encoding had issues: {stderr}')
+            # Fallback to opencv
+            print('Falling back to OpenCV VideoWriter...')
+            save_videos(video, dt, video_path)
+    except Exception as e:
+        print(f'ffmpeg failed: {e}')
+        print('Falling back to OpenCV VideoWriter...')
+        save_videos(video, dt, video_path)
+
 def main(args):
     dataset_dir = args['dataset_dir']
     episode_idx = args['episode_idx']
     dataset_name = f'episode_{episode_idx}'
 
     qpos, qvel, action, image_dict = load_hdf5(dataset_dir, dataset_name)
-    save_videos(image_dict, DT, video_path=os.path.join(dataset_dir, dataset_name + '_video.mp4'))
+    # Use ffmpeg for high quality video (CRF=18 for visually lossless, CRF=23 for good quality)
+    save_videos_ffmpeg(image_dict, DT, video_path=os.path.join(dataset_dir, dataset_name + '_video.mp4'), crf=18)
     visualize_joints(qpos, action, plot_path=os.path.join(dataset_dir, dataset_name + '_qpos.png'))
     
     # Plot joint kinematics for both arms
@@ -50,7 +128,12 @@ def save_videos(video, dt, video_path=None):
         h, w, _ = video[0][cam_names[0]].shape
         w = w * len(cam_names)
         fps = int(1/dt)
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+        # Use mp4v codec for best compatibility (works without external encoders)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(video_path, fourcc, fps, (w, h))
+        if not out.isOpened():
+            raise RuntimeError(f"Failed to create video writer for {video_path}")
+        
         for ts, image_dict in enumerate(video):
             images = []
             for cam_name in cam_names:
@@ -70,7 +153,18 @@ def save_videos(video, dt, video_path=None):
 
         n_frames, h, w, _ = all_cam_videos.shape
         fps = int(1 / dt)
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+        # Use H264 codec for better quality (fallback to mp4v if not available)
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+        out = cv2.VideoWriter(video_path, fourcc, fps, (w, h))
+        if not out.isOpened():
+            # Fallback to X264 if avc1 not available
+            fourcc = cv2.VideoWriter_fourcc(*'X264')
+            out = cv2.VideoWriter(video_path, fourcc, fps, (w, h))
+        if not out.isOpened():
+            # Final fallback to mp4v
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(video_path, fourcc, fps, (w, h))
+        
         for t in range(n_frames):
             image = all_cam_videos[t]
             image = image[:, :, [2, 1, 0]]  # swap B and R channel
