@@ -1,16 +1,7 @@
 # ACT: Action Chunking with Transformers
 
-### *New*: [ACT tuning tips](https://docs.google.com/document/d/1FVIZfoALXg_ZkYKaYVh-qOlaXveq5CtvJHXkY25eYhs/edit?usp=sharing)
-TL;DR: if your ACT policy is jerky or pauses in the middle of an episode, just train for longer! Success rate and smoothness can improve way after loss plateaus.
 
-#### Project Website: https://tonyzhaozh.github.io/aloha/
 
-This repo contains the implementation of ACT, together with 2 simulated environments:
-Transfer Cube and Bimanual Insertion. You can train and evaluate ACT in sim or real.
-For real, you would also need to install [ALOHA](https://github.com/tonyzhaozh/aloha).
-
-### Updates:
-You can find all scripted/human demo for simulated environments [here](https://drive.google.com/drive/folders/1gPR03v05S1xiInoVJn7G7VJ9pDCnxq9O?usp=share_link).
 
 
 ### Repo Structure
@@ -52,7 +43,16 @@ To set up a new terminal, run:
     conda activate aloha
     cd <path to act repo>
 
-### Simulated experiments
+
+### Simulated Experiments
+
+| Task Name                  | Description                |
+|-----------------------------|----------------------------|
+| `sim_transfer_cube_scripted` | Transfer cube with scripted policy |
+| `sim_slot_insertion_scripted` | Peg insertion task        |
+| `sim_cupboard_scripted`      | Cupboard opening/closing   |
+| `sim_stack_scripted`         | Stacking cubes             |
+
 
 We use ``sim_transfer_cube_scripted`` task in the examples below. Another option is ``sim_insertion_scripted``.
 To generated 50 episodes of scripted data, run:
@@ -67,6 +67,8 @@ To visualize the episode after it is collected, run
 
     python3 visualize_episodes.py --dataset_dir <data save dir> --episode_idx 0
 
+
+    
 To train ACT:
     
     # Transfer Cube task
@@ -76,6 +78,7 @@ To train ACT:
     --policy_class ACT --kl_weight 10 --chunk_size 100 --hidden_dim 512 --batch_size 8 --dim_feedforward 3200 \
     --num_epochs 2000  --lr 1e-5 \
     --seed 0
+    --pose_mode
 
 
 To evaluate the policy, run the same command but add ``--eval``. This loads the best validation checkpoint.
@@ -83,7 +86,20 @@ The success rate should be around 90% for transfer cube, and around 50% for inse
 To enable temporal ensembling, add flag ``--temporal_agg``.
 Videos will be saved to ``<ckpt_dir>`` for each rollout.
 You can also add ``--onscreen_render`` to see real-time rendering during evaluation.
+Here when doing peg insertion, the ``--pose_mode`` could be set to similar and edge, random is the default mode
 
-For real-world data where things can be harder to model, train for at least 5000 epochs or 3-4 times the length after the loss has plateaued.
-Please refer to [tuning tips](https://docs.google.com/document/d/1FVIZfoALXg_ZkYKaYVh-qOlaXveq5CtvJHXkY25eYhs/edit?usp=sharing) for more info.
+
+To see trajectory:
+    
+    
+    python3 trajectory_analysis_with_plots.py
+
+
+
+To visualize the Z:
+
+    python3 z_analysis.py
+
+
+
 
