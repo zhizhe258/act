@@ -333,18 +333,19 @@ def sample_insertion_pose_random():
 
 # Cupboard
 def sample_box_cupboard_pose():
-    # box long
-    x_range = [0.15, 0.20]  # 0.15 -- 0.20
-    y_range = [0.45, 0.55]  # 0.45 -- 0.55
+    # Box to be picked (增加 X 和 Y 轴多样性)
+    x_range = [0.08, 0.22]      # Expanded from 5cm to 14cm (2.8x)
+    y_range = [0.42, 0.58]      # Expanded from 10cm to 16cm (1.6x)
     z_range = [0.05, 0.05]
 
     ranges = np.vstack([x_range, y_range, z_range])
     box_position = np.random.uniform(ranges[:, 0], ranges[:, 1])
 
+    # IMPORTANT: Keep box upright with identity quaternion [w, x, y, z] = [1, 0, 0, 0]
     box_quat = np.array([1, 0, 0, 0])
     box_pose = np.concatenate([box_position, box_quat])
 
-    # target box
+    # target box (fixed position for now to ensure task success)
     x_range = [-0.01, -0.01]
     y_range = [0.6, 0.6]
     z_range = [0.05, 0.05]
@@ -355,8 +356,7 @@ def sample_box_cupboard_pose():
     target_box_quat = np.array([1, 0, 0, 0])
     target_box_pose = np.concatenate([target_box_position, target_box_quat])
 
-
-    drawer_initial_pose= [0.0] 
+    drawer_initial_pose = [0.0] 
 
     return box_pose, target_box_pose, drawer_initial_pose
 
@@ -364,10 +364,11 @@ def sample_box_cupboard_pose():
 def sample_stack_pose():
     """
     Sample random poses for the three blocks in cupboard style
+    With safe gaps to prevent collision (assuming ~5cm cube size)
     """
-    # Green block (base block)
-    x_range = [-0.05, 0.05]
-    y_range = [0.42, 0.48]  
+    # Green block (base block) - Center region
+    x_range = [-0.06, 0.06]     # 12cm wide, centered at origin
+    y_range = [0.41, 0.59]      # 18cm deep (3x original)
     z_range = [0.025, 0.025]
     
     ranges = np.vstack([x_range, y_range, z_range])
@@ -376,9 +377,9 @@ def sample_stack_pose():
     green_quat = np.array([1, 0, 0, 0])
     green_pose = np.concatenate([green_position, green_quat])
     
-    # Red block
-    x_range = [-0.16, -0.10]
-    y_range = [0.42, 0.48]
+    # Red block - Left region (with 6cm safety gap from Green)
+    x_range = [-0.22, -0.12]    # 10cm wide, 6cm gap from green's left edge
+    y_range = [0.41, 0.59]      # 18cm deep (3x original)
     z_range = [0.02, 0.02]
     
     ranges = np.vstack([x_range, y_range, z_range])
@@ -387,9 +388,9 @@ def sample_stack_pose():
     red_quat = np.array([1, 0, 0, 0])
     red_pose = np.concatenate([red_position, red_quat])
     
-    # Blue block  
-    x_range = [0.10, 0.20]
-    y_range = [0.42, 0.48]
+    # Blue block - Right region (with 6cm safety gap from Green)
+    x_range = [0.12, 0.22]      # 10cm wide, 6cm gap from green's right edge
+    y_range = [0.41, 0.59]      # 18cm deep (3x original)
     z_range = [0.02, 0.02]
     
     ranges = np.vstack([x_range, y_range, z_range])

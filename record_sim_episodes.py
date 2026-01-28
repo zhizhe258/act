@@ -109,9 +109,9 @@ def main(args):
         episode_return = np.sum([ts.reward for ts in episode[1:]])
         episode_max_reward = np.max([ts.reward for ts in episode[1:]])
         if episode_max_reward == env.task.max_reward:
-            print(f"{episode_idx=} Successful, {episode_return=}")
+            print(f"{episode_idx=} EE Stage Successful, {episode_return=}")
         else:
-            print(f"{episode_idx=} Failed")
+            print(f"{episode_idx=} EE Stage Failed (will replay joint commands)")
 
         joint_traj = [ts.observation['qpos'] for ts in episode]
         # replace gripper pose with gripper control
@@ -153,10 +153,10 @@ def main(args):
         episode_max_reward = np.max([ts.reward for ts in episode_replay[1:]])
         if episode_max_reward == env.task.max_reward:
             success.append(1)
-            print(f"{episode_idx=} Successful, {episode_return=}")
+            print(f"{episode_idx=} ✅ Replay Successful, {episode_return=}")
         else:
             success.append(0)
-            print(f"{episode_idx=} Failed")
+            print(f"{episode_idx=} ❌ Replay Failed, {episode_return=}")
 
         plt.close()
 
@@ -217,7 +217,12 @@ def main(args):
         print(f'Saving: {time.time() - t0:.1f} secs\n')
 
     print(f'Saved to {dataset_dir}')
-    print(f'Success: {np.sum(success)} / {len(success)}')
+    success_count = np.sum(success)
+    total_count = len(success)
+    success_rate = success_count / total_count if total_count > 0 else 0
+    print(f'\n{"="*50}')
+    print(f'Final Success Rate (based on Replay): {success_count}/{total_count} = {success_rate*100:.1f}%')
+    print(f'{"="*50}\n')
     
     # Visualize position distribution for all episodes
     if len(all_peg_positions) > 0 or len(all_cube_positions) > 0:

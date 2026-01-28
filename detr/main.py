@@ -63,6 +63,7 @@ def get_args_parser():
     parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    parser.add_argument('--no_cvae', action='store_true', help='Disable CVAE encoder, use pure BC mode')
     parser.add_argument('--pose_mode', action='store', type=str, choices=['fixed', 'random', 'edge', 'similar', 'uniform'],
                         default='random', help='pose sampling mode: fixed, random, edge, or similar')
 
@@ -71,7 +72,7 @@ def get_args_parser():
 
 def build_ACT_model_and_optimizer(args_override):
     parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()  # Use parse_known_args to ignore unknown arguments
 
     for k, v in args_override.items():
         setattr(args, k, v)
@@ -94,7 +95,7 @@ def build_ACT_model_and_optimizer(args_override):
 
 def build_CNNMLP_model_and_optimizer(args_override):
     parser = argparse.ArgumentParser('DETR training and evaluation script', parents=[get_args_parser()])
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()  # Use parse_known_args to ignore unknown arguments
 
     for k, v in args_override.items():
         setattr(args, k, v)

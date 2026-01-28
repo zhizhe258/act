@@ -57,10 +57,18 @@ class Transformer(nn.Module):
             # mask = mask.flatten(1)
 
             additional_pos_embed = additional_pos_embed.unsqueeze(1).repeat(1, bs, 1) # seq, bs, dim
-            pos_embed = torch.cat([additional_pos_embed, pos_embed], axis=0)
-
-            addition_input = torch.stack([latent_input, proprio_input], axis=0)
-            src = torch.cat([addition_input, src], axis=0)
+            
+            # Handle latent_input: if None (pure BC mode), only use proprio_input
+            if latent_input is not None:
+                # CVAE mode: stack [latent, proprio] and use 2 additional pos embeddings
+                pos_embed = torch.cat([additional_pos_embed, pos_embed], axis=0)
+                addition_input = torch.stack([latent_input, proprio_input], axis=0)
+                src = torch.cat([addition_input, src], axis=0)
+            else:
+                # Pure BC mode: only use proprio_input with 1 additional pos embedding
+                pos_embed = torch.cat([additional_pos_embed[:1], pos_embed], axis=0)  # only 1 pos embed for proprio
+                addition_input = proprio_input.unsqueeze(0)  # (1, bs, dim)
+                src = torch.cat([addition_input, src], axis=0)
         else:
             assert len(src.shape) == 3
             # flatten NxHWxC to HWxNxC

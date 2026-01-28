@@ -11,7 +11,7 @@ from einops import rearrange
 from constants import DT
 from constants import PUPPET_GRIPPER_JOINT_OPEN
 from utils import load_data # data functions
-from utils import sample_box_pose, sample_insertion_pose, sample_box_pose_random, sample_insertion_pose_random,sample_box_cupboard_pose, sample_stack_pose # robot functions
+from utils import sample_box_pose, sample_insertion_pose, sample_box_pose_random, sample_insertion_pose_random, sample_box_cupboard_pose, sample_stack_pose # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from policy import ACTPolicy, CNNMLPPolicy
 from visualize_episodes import save_videos
@@ -35,16 +35,28 @@ def main(args):
 
     # Set pose sampling mode
     pose_mode = args.get('pose_mode', 'random')
+    
+    # For evaluation, allow overriding pose_mode with eval_pose_mode
+    eval_pose_mode = args.get('eval_pose_mode', None)
+    if args['eval'] and eval_pose_mode:
+        print(f"Evaluation mode: using eval_pose_mode '{eval_pose_mode}' (training pose_mode was '{pose_mode}')")
+        actual_pose_mode = eval_pose_mode
+    else:
+        actual_pose_mode = pose_mode
+    
     import utils
-    utils.POSE_SAMPLING_MODE = pose_mode
+    utils.POSE_SAMPLING_MODE = actual_pose_mode
     
     # get task parameters
     is_sim = task_name[:4] == 'sim_'
     if is_sim:
         from constants import SIM_TASK_CONFIGS, get_dataset_dir
         task_config = SIM_TASK_CONFIGS[task_name].copy()
-        # Adjust data directory based on pose mode
-        task_config['dataset_dir'] = get_dataset_dir(task_name, pose_mode)
+        # Use directly specified dataset_dir if provided, otherwise use pose_mode based path
+        if args.get('dataset_dir'):
+            task_config['dataset_dir'] = args['dataset_dir']
+        else:
+            task_config['dataset_dir'] = get_dataset_dir(task_name, pose_mode)
     else:
         from aloha_scripts.constants import TASK_CONFIGS
         task_config = TASK_CONFIGS[task_name]
@@ -53,7 +65,6 @@ def main(args):
     episode_len = task_config['episode_len']
     camera_names = task_config['camera_names']
     
-    print(f"Pose sampling mode: {pose_mode if is_sim else 'N/A'}")
     print(f"Dataset directory: {dataset_dir}")
 
     # fixed parameters
@@ -75,6 +86,7 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
+                         'use_cvae': not args.get('no_cvae', False),
                          }
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,
@@ -88,18 +100,24 @@ def main(args):
     print(f"{'='*50}")
     
     # Create checkpoint directory with policy type and pose mode information
+    # Note: For evaluation, we don't add pose_suffix to model dir because the ckpt_dir itself
+    # already distinguishes different training modes (e.g., sim_insertion_edge vs sim_insertion_similar)
     if is_sim:
+        # Only add pose_suffix for TRAINING (not for evaluation)
+        # During evaluation, the model is always in "model/" or "model_nocvae/" subdirectory
         pose_suffix = f"_{pose_mode}" if pose_mode != 'random' else ""
+        nocvae_suffix = "_nocvae" if args.get('no_cvae', False) else ""
         # Create different directories for different policy types
         if policy_class == 'CNNMLP':
             current_ckpt_dir = os.path.join(ckpt_dir, f"cnnmlp{pose_suffix}")
         else:  # ACT
-            current_ckpt_dir = os.path.join(ckpt_dir, f"model{pose_suffix}")
+            current_ckpt_dir = os.path.join(ckpt_dir, f"model{nocvae_suffix}{pose_suffix}")
     else:
+        nocvae_suffix = "_nocvae" if args.get('no_cvae', False) else ""
         if policy_class == 'CNNMLP':
             current_ckpt_dir = os.path.join(ckpt_dir, "cnnmlp")
         else:  # ACT
-            current_ckpt_dir = os.path.join(ckpt_dir, "model")
+            current_ckpt_dir = os.path.join(ckpt_dir, f"model{nocvae_suffix}")
     
     config = {
         'num_epochs': num_epochs,
@@ -128,17 +146,21 @@ def main(args):
         
         # Create evaluation directory
         eval_suffix = "with_temporal_agg" if temporal_agg_mode else "without_temporal_agg"
+        
+        # Add eval_pose_mode suffix to distinguish different evaluation modes
+        eval_pose_suffix = f"_{eval_pose_mode}" if eval_pose_mode else ""
+        
         if is_sim:
             # Create different evaluation directories for different policy types
             if policy_class == 'CNNMLP':
-                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp{pose_suffix}")
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp{pose_suffix}{eval_pose_suffix}")
             else:  # ACT
-                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}{pose_suffix}")
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}{nocvae_suffix}{pose_suffix}{eval_pose_suffix}")
         else:
             if policy_class == 'CNNMLP':
-                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp")
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}_cnnmlp{eval_pose_suffix}")
             else:  # ACT
-                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}")
+                eval_dir = os.path.join(ckpt_dir, f"eval_{eval_suffix}{nocvae_suffix}{eval_pose_suffix}")
         
         if not os.path.isdir(eval_dir):
             os.makedirs(eval_dir)
@@ -301,9 +323,9 @@ def eval_bc(config, ckpt_name, save_episode=True):
         ### set task
         # Force random sampling during evaluation to test model generalization
         if 'sim_transfer_cube' in task_name:
-            BOX_POSE[0] = sample_box_pose_random() # Force random during evaluation
+            BOX_POSE[0] = sample_box_pose() # Use POSE_SAMPLING_MODE setting
         elif 'sim_insertion' in task_name:
-            BOX_POSE[0] = np.concatenate(sample_insertion_pose_random()) # Force random during evaluation
+            BOX_POSE[0] = np.concatenate(sample_insertion_pose()) # Use POSE_SAMPLING_MODE setting
         elif 'sim_cupboard_scripted' in task_name:
             box_pose, target_pose, drawer_initial_pose= sample_box_cupboard_pose()
             BOX_POSE[0] = np.concatenate([box_pose, target_pose, drawer_initial_pose])
@@ -390,8 +412,19 @@ def eval_bc(config, ckpt_name, save_episode=True):
         episode_return = np.sum(rewards[rewards!=None])
         episode_returns.append(episode_return)
         episode_highest_reward = np.max(rewards)
-        highest_rewards.append(episode_highest_reward)
-        print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, {env_max_reward=}, Success: {episode_highest_reward==env_max_reward}')
+        
+        # For stack task: success is determined by FINAL state, not highest reward
+        # (must maintain stable stack at the end, not just momentarily)
+        if 'stack' in task_name:
+            episode_final_reward = rewards[-1] if len(rewards) > 0 else 0
+            success_reward = episode_final_reward  # Use final state for stack
+            success = (episode_final_reward == env_max_reward)
+        else:
+            success_reward = episode_highest_reward  # Use highest for other tasks
+            success = (episode_highest_reward == env_max_reward)
+        
+        highest_rewards.append(success_reward)
+        print(f'Rollout {rollout_id}\n{episode_return=}, {episode_highest_reward=}, final_reward={rewards[-1] if len(rewards) > 0 else 0}, {env_max_reward=}, Success: {success}')
 
         if save_episode:
             save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
@@ -535,7 +568,12 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    parser.add_argument('--no_cvae', action='store_true', help='Disable CVAE encoder, use pure BC mode')
     parser.add_argument('--pose_mode', action='store', type=str, choices=['fixed', 'random', 'edge', 'similar', 'uniform'], 
-                        default='random', help='pose sampling mode: fixed, random, edge, or similar')
+                        default='random', help='pose sampling mode for training: fixed, random, edge, or similar')
+    parser.add_argument('--eval_pose_mode', action='store', type=str, choices=['fixed', 'random', 'edge', 'similar', 'uniform'], 
+                        default=None, help='pose sampling mode for evaluation (overrides pose_mode during eval)')
+    parser.add_argument('--dataset_dir', action='store', type=str, default=None,
+                        help='Directly specify dataset directory (overrides pose_mode based path)')
     
     main(vars(parser.parse_args()))

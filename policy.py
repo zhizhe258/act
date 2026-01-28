@@ -12,8 +12,9 @@ class ACTPolicy(nn.Module):
         model, optimizer = build_ACT_model_and_optimizer(args_override)
         self.model = model # CVAE decoder
         self.optimizer = optimizer
-        self.kl_weight = args_override['kl_weight']
-        print(f'KL Weight {self.kl_weight}')
+        self.kl_weight = args_override.get('kl_weight', 10)
+        self.use_cvae = args_override.get('use_cvae', True)
+        print(f'KL Weight {self.kl_weight}, Use CVAE: {self.use_cvae}')
 
     def __call__(self, qpos, image, actions=None, is_pad=None):
         env_state = None
@@ -25,13 +26,21 @@ class ACTPolicy(nn.Module):
             is_pad = is_pad[:, :self.model.num_queries]
 
             a_hat, is_pad_hat, (mu, logvar) = self.model(qpos, image, env_state, actions, is_pad)
-            total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
             all_l1 = F.l1_loss(actions, a_hat, reduction='none')
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
-            loss_dict['kl'] = total_kld[0]
-            loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight
+            
+            if self.use_cvae:
+                # CVAE mode: compute KL divergence loss
+                total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
+                loss_dict['kl'] = total_kld[0]
+                loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight
+            else:
+                # Pure BC mode: no KL loss
+                import torch
+                loss_dict['kl'] = torch.tensor(0.0, device=qpos.device)
+                loss_dict['loss'] = loss_dict['l1']
             return loss_dict
         else: # inference time
             a_hat, _, (_, _) = self.model(qpos, image, env_state) # no action, sample from prior

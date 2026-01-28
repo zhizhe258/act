@@ -33,7 +33,7 @@ def get_sinusoid_encoding_table(n_position, d_hid):
 
 class DETRVAE(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names):
+    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names, use_cvae=True):
         """ Initializes the model.
         Parameters:
             backbones: torch module of the backbone to be used. See backbone.py
@@ -42,12 +42,14 @@ class DETRVAE(nn.Module):
             num_queries: number of object queries, ie detection slot. This is the maximal number of objects
                          DETR can detect in a single image. For COCO, we recommend 100 queries.
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
+            use_cvae: if False, skip CVAE encoder and use zero latent (pure BC mode)
         """
         super().__init__()
         self.num_queries = num_queries
         self.camera_names = camera_names
         self.transformer = transformer
         self.encoder = encoder
+        self.use_cvae = use_cvae
         hidden_dim = transformer.d_model
         self.action_head = nn.Linear(hidden_dim, state_dim)
         self.is_pad_head = nn.Linear(hidden_dim, 1)
@@ -85,7 +87,8 @@ class DETRVAE(nn.Module):
         is_training = actions is not None # train or val
         bs, _ = qpos.shape
         ### Obtain latent z from action sequence
-        if is_training:
+        if is_training and self.use_cvae:
+            # CVAE mode: infer z from action sequence
             # project action sequence to embedding dim, and concat with a CLS token
             action_embed = self.encoder_action_proj(actions) # (bs, seq, hidden_dim)
             qpos_embed = self.encoder_joint_proj(qpos)  # (bs, hidden_dim)
@@ -109,9 +112,9 @@ class DETRVAE(nn.Module):
             latent_sample = reparametrize(mu, logvar)
             latent_input = self.latent_out_proj(latent_sample)
         else:
+            # Pure BC mode or inference: completely skip latent
             mu = logvar = None
-            latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(qpos.device)
-            latent_input = self.latent_out_proj(latent_sample)
+            latent_input = None  # Will be handled by transformer to skip latent entirely
 
         if self.backbones is not None:
             # Image observation features and position embeddings
@@ -247,6 +250,7 @@ def build(args):
         state_dim=state_dim,
         num_queries=args.num_queries,
         camera_names=args.camera_names,
+        use_cvae=getattr(args, 'use_cvae', True),
     )
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
